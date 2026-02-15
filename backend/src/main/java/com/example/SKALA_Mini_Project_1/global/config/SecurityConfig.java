@@ -61,7 +61,10 @@ public class SecurityConfig {
                     "/api/users/signup",
                     "/api/users/login",
                     "/api/users/logout",
-                    "/api/users/email/**"
+                    "/api/users/email/**",
+                    // 대기열 큐 관련 API 허용a
+                    "/queue/**", 
+                    "/api/seats/seats"
                 ).permitAll()
                 // 나머지는 인증 필요
                 .anyRequest().authenticated()

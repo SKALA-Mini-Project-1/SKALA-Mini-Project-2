@@ -13,9 +13,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.SKALA_Mini_Project_1.modules.seats.dto.BatchSeatHoldRequest;
@@ -198,5 +200,26 @@ public class SeatController {
                     "status", "conflict"
             ));
         }
+    }
+
+    // 대기열에서 입장 허용된 사용자만 접근 가능한 엔드포인트
+    @GetMapping("/seats")
+    public ResponseEntity<?> enterSeat(
+            @RequestParam String token
+    ) {
+
+        String key = "seat:entry:" + token;
+
+        String userId = redisTemplate.opsForValue().get(key);
+
+        if (userId == null) {
+            return ResponseEntity.status(403)
+                    .body("유효하지 않은 접근");
+        }
+
+        // 1회용 처리
+        redisTemplate.delete(key);
+
+        return ResponseEntity.ok("좌석 선택 화면 입장 성공");
     }
 }
