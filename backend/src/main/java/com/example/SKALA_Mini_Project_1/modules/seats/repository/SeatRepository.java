@@ -35,4 +35,22 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
             nativeQuery = true
     )
     Optional<Seat> findByIdAndConcertId(Long seatId, Long concertId);
+
+    @Query(
+            value = """
+                    SELECT s.id AS seatId,
+                           s.section AS section,
+                           s.row_number AS rowNumber,
+                           s.seat_number AS seatNumber,
+                           s.price AS price,
+                           s.status AS status,
+                           s.schedule_id AS scheduleId
+                    FROM seats s
+                    JOIN schedules sc ON sc.id = s.schedule_id
+                    WHERE sc.concert_id = :concertId
+                      AND s.id IN (:seatIds)
+                    """,
+            nativeQuery = true
+    )
+    List<SeatBookingView> findSeatBookingViews(Long concertId, List<Long> seatIds);
 }
