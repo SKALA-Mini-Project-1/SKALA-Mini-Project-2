@@ -29,30 +29,39 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            .csrf(csrf -> csrf.disable())  // REST API이므로 CSRF 비활성화
-            .sessionManagement(session -> 
-                session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)  // JWT 사용으로 세션 미사용
-            )
-            .authorizeHttpRequests(auth -> auth
-                // ✨ Swagger 관련 경로는 모두 허용
-                .requestMatchers(
-                    "/swagger-ui/**",
-                    "/v3/api-docs/**",
-                    "/swagger-resources/**",
-                    "/swagger-ui.html"
-                ).permitAll()
-                // 인증 없이 접근 가능한 API
-                .requestMatchers(
-                    "/api/users/signup",
-                    "/api/users/login",
-                    "/api/users/logout",
-                    "/api/users/email/**"
-                ).permitAll()
-                // 나머지는 인증 필요
-                .anyRequest().authenticated()
-            )
-            // JWT 필터 추가
-            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+    .csrf(csrf -> csrf.disable())
+    .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+    .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+    .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+
+        // http
+        //     .csrf(csrf -> csrf.disable())  // REST API이므로 CSRF 비활성화
+        //     .sessionManagement(session -> 
+        //         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)  // JWT 사용으로 세션 미사용
+        //     )
+        //     .authorizeHttpRequests(auth -> auth
+        //         // 결제 관련 API는 인증 없이 접근 허용
+        //         .requestMatchers("/payments/**").permitAll()
+        //         .requestMatchers("/toss/**").permitAll()
+        //         // ✨ Swagger 관련 경로는 모두 허용
+        //         .requestMatchers(
+        //             "/swagger-ui/**",
+        //             "/v3/api-docs/**",
+        //             "/swagger-resources/**",
+        //             "/swagger-ui.html"
+        //         ).permitAll()
+        //         // 인증 없이 접근 가능한 API
+        //         .requestMatchers(
+        //             "/api/users/signup",
+        //             "/api/users/login",
+        //             "/api/users/logout",
+        //             "/api/users/email/**"
+        //         ).permitAll()
+        //         // 나머지는 인증 필요
+        //         .anyRequest().authenticated()
+        //     )
+        //     // JWT 필터 추가
+        //     .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         
         return http.build();
     }

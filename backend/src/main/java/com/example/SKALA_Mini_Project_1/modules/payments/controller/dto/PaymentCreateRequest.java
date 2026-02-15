@@ -13,6 +13,7 @@ import java.util.UUID;
 @Setter
 public class PaymentCreateRequest {
 
+    @NotNull
     private UUID bookingId;
 
     @NotNull
