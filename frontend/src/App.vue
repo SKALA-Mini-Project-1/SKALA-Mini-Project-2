@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import Header from './components/Header.vue';
 import ConcertDetail from './components/ConcertDetail.vue';
 import QueueScreen from './components/QueueScreen.vue';
@@ -9,62 +9,163 @@ import BookingConfirmation from './components/BookingConfirmation.vue';
 import MyPage from './components/MyPage.vue';
 import ServerError from './components/ServerError.vue';
 import SoldOut from './components/SoldOut.vue';
-import type { BookingData, Seat, Step } from './types';
+import LoginPage from './components/LoginPage.vue';
+import SignupPage from './components/SignupPage.vue';
+import type { BookingData, Seat } from './types';
+import { apiRequest } from './services/api';
+import { clearAuth, getToken, isLoggedIn } from './services/auth';
 
-const currentStep = ref<Step>('detail');
 const bookingData = reactive<BookingData>({
   date: null,
   session: null,
   seats: []
 });
 
+const authState = ref(isLoggedIn());
+const currentPath = ref(window.location.pathname || '/concert/detail');
+
+const validPaths = new Set([
+  '/concert/detail',
+  '/concert/queue',
+  '/concert/seat',
+  '/concert/payment',
+  '/concert/confirm',
+  '/mypage',
+  '/login',
+  '/signup',
+  '/error',
+  '/soldout'
+]);
+
+const normalizedPath = computed(() => {
+  if (currentPath.value === '/') {
+    return '/concert/detail';
+  }
+
+  if (validPaths.has(currentPath.value)) {
+    return currentPath.value;
+  }
+
+  return '/concert/detail';
+});
+
+const setPath = (path: string, replace = false) => {
+  if (replace) {
+    window.history.replaceState({}, '', path);
+  } else {
+    window.history.pushState({}, '', path);
+  }
+  currentPath.value = path;
+};
+
+const navigate = (path: string) => {
+  setPath(path);
+};
+
+const handlePopState = () => {
+  currentPath.value = window.location.pathname || '/concert/detail';
+};
+
 const handleBookingStart = (date: string, session: string) => {
   bookingData.date = date;
   bookingData.session = session;
-  currentStep.value = 'queue';
+  navigate('/concert/queue');
 };
 
 const handleQueueComplete = () => {
-  currentStep.value = 'seat';
+  navigate('/concert/seat');
 };
 
 const handleSeatComplete = (seats: Seat[]) => {
   bookingData.seats = seats;
-  currentStep.value = 'payment';
+  navigate('/concert/payment');
 };
 
 const handlePaymentComplete = () => {
-  currentStep.value = 'confirm';
+  navigate('/concert/confirm');
 };
 
-const navigate = (step: Step) => {
-  currentStep.value = step;
+const handleLogout = async () => {
+  try {
+    const token = getToken();
+    if (token) {
+      await apiRequest<{ message: string; status: string }>('/api/users/logout', {
+        method: 'POST',
+        token
+      });
+    }
+  } catch {
+    // 서버 로그아웃 실패여도 클라이언트 세션은 제거
+  } finally {
+    clearAuth();
+    authState.value = false;
+    if (normalizedPath.value === '/mypage') {
+      navigate('/login');
+    }
+  }
 };
+
+const handleLoggedIn = () => {
+  authState.value = true;
+};
+
+const handleLoggedOut = () => {
+  authState.value = false;
+};
+
+onMounted(() => {
+  const path = window.location.pathname || '/concert/detail';
+  if (!validPaths.has(path) && path !== '/') {
+    setPath('/concert/detail', true);
+  }
+  if (path === '/') {
+    setPath('/concert/detail', true);
+  }
+  window.addEventListener('popstate', handlePopState);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('popstate', handlePopState);
+});
 </script>
 
 <template>
   <div class="min-h-screen bg-white font-sans text-[#333]">
-    <Header :current-step="currentStep" @navigate="navigate" />
+    <Header :current-path="normalizedPath" :is-authenticated="authState" @navigate="navigate" @logout="handleLogout" />
+
     <main>
+      <LoginPage
+        v-if="normalizedPath === '/login'"
+        @navigate="navigate"
+        @logged-in="handleLoggedIn"
+      />
+      <SignupPage
+        v-else-if="normalizedPath === '/signup'"
+        @navigate="navigate"
+      />
+      <MyPage
+        v-else-if="normalizedPath === '/mypage'"
+        @navigate="navigate"
+        @logged-out="handleLoggedOut"
+      />
       <ConcertDetail
-        v-if="currentStep === 'detail'"
+        v-else-if="normalizedPath === '/concert/detail'"
         @booking-start="handleBookingStart"
       />
-      <QueueScreen v-else-if="currentStep === 'queue'" @queue-complete="handleQueueComplete" />
-      <SeatSelection v-else-if="currentStep === 'seat'" @complete="handleSeatComplete" />
+      <QueueScreen v-else-if="normalizedPath === '/concert/queue'" @queue-complete="handleQueueComplete" />
+      <SeatSelection v-else-if="normalizedPath === '/concert/seat'" @complete="handleSeatComplete" />
       <PaymentScreen
-        v-else-if="currentStep === 'payment'"
+        v-else-if="normalizedPath === '/concert/payment'"
         :booking-data="bookingData"
         @payment-complete="handlePaymentComplete"
       />
       <BookingConfirmation
-        v-else-if="currentStep === 'confirm'"
+        v-else-if="normalizedPath === '/concert/confirm'"
         :booking-data="bookingData"
         @navigate="navigate"
       />
-      <MyPage v-else-if="currentStep === 'mypage'" />
-      <ServerError v-else-if="currentStep === 'error'" @retry="navigate('detail')" />
-      <SoldOut v-else-if="currentStep === 'soldout'" @back="navigate('detail')" />
+      <ServerError v-else-if="normalizedPath === '/error'" @retry="navigate('/concert/detail')" />
+      <SoldOut v-else-if="normalizedPath === '/soldout'" @back="navigate('/concert/detail')" />
       <ConcertDetail v-else @booking-start="handleBookingStart" />
     </main>
 
@@ -78,13 +179,13 @@ const navigate = (step: Step) => {
           <span>고객센터</span>
         </div>
         <p class="leading-relaxed">
-          (주)티켓코리아 | 대표이사: 김철수 | 사업자등록번호: 123-45-67890
+          (주)FairLine Ticket | 대표이사: 김철수 | 사업자등록번호: 123-45-67890
           <br />
           주소: 서울특별시 강남구 테헤란로 123 | 통신판매업신고: 2025-서울강남-00000
           <br />
           고객센터: 1544-0000 (평일 09:00~18:00) | 팩스: 02-0000-0000 | 이메일: help@ticketkorea.com
         </p>
-        <p class="mt-4 text-[#ccc]">Copyright © TICKET KOREA Corp. All Rights Reserved.</p>
+        <p class="mt-4 text-[#ccc]">Copyright © FairLine Ticket Corp. All Rights Reserved.</p>
       </div>
     </footer>
   </div>

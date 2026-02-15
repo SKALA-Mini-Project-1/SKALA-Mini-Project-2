@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { Check, Home, QrCode, Smartphone } from 'lucide-vue-next';
 import { computed } from 'vue';
-import type { BookingData, Step } from '../types';
+import type { BookingData } from '../types';
 
 const props = defineProps<{
   bookingData: BookingData;
 }>();
 
 const emit = defineEmits<{
-  navigate: [step: Step];
+  navigate: [path: string];
 }>();
 
 const totalAmount = computed(() => props.bookingData.seats.reduce((sum, seat) => sum + seat.price, 0));
@@ -65,14 +65,14 @@ const totalAmount = computed(() => props.bookingData.seats.reduce((sum, seat) =>
     <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
       <button
         class="flex items-center justify-center space-x-2 rounded-sm border border-[#FF6B00] py-3 font-bold text-[#FF6B00] transition-colors hover:bg-orange-50 md:py-4"
-        @click="emit('navigate', 'mypage')"
+        @click="emit('navigate', '/mypage')"
       >
         <QrCode :size="20" />
         <span>모바일 티켓 확인</span>
       </button>
       <button
         class="flex items-center justify-center space-x-2 rounded-sm bg-[#333] py-3 font-bold text-white transition-colors hover:bg-black md:py-4"
-        @click="emit('navigate', 'detail')"
+        @click="emit('navigate', '/concert/detail')"
       >
         <Home :size="20" />
         <span>메인으로 돌아가기</span>

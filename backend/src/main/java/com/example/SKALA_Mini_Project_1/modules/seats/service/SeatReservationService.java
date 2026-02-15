@@ -9,174 +9,198 @@ import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.TimeUnit;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class SeatReservationService {
-    public enum SeatHoldResult {
+    private static final int MAX_HOLD_SEAT_COUNT = 4; // 1인 최대 4매 제한
+
+    public enum SeatHoldResult { // 좌석 선점 상태
         HELD,
         RELEASED
     }
 
-    private final RedissonClient redissonClient; // 좌석 선택 시 중복 예약을 막기 위한 분산 락
+    public enum SeatReleaseResult { // 좌석 선점 취소 상태
+        RELEASED,
+        ALREADY_RELEASED
+    }
+
+    public record BatchHoldResult(boolean success, List<Long> heldSeatIds, List<Long> failedSeatIds) {}
+
     private final SeatRepository seatRepository;
     private final RedisLockRepository redisLockRepository;
 
-    private static final String LOCK_KEY_PREFIX = "LOCK:SEAT:"; // seat_id로 락 획득
-    private static final int HOLD_DURATION_MINUTES = 1;
-
-    /**
+    /*
      * 좌석 선점 (임시 예약)
-     * Redis를 통해 선점 상태를 관리하고, DB에도 반영합니다.
+     * 좌석 HOLD 상태는 Redis에만 저장하고, DB는 AVAILABLE/RESERVED만 유지합니다.
      */
     public SeatHoldResult reserveSeatTemporary(
             Long concertId,
             Long seatId,
-            String section,
-            Integer rowNumber,
-            Integer seatNumber,
             Long userId
     ) {
-        // 1. Redis를 통한 선점 시도 (분산 락 역할 겸 상태 저장)
-        boolean isLocked = redisLockRepository.lockSeat(concertId, section, rowNumber, seatNumber, userId.toString());
-        
-        if (!isLocked) {
-            String currentOwner = redisLockRepository.getSeatOwner(concertId, section, rowNumber, seatNumber);
-            if (Objects.equals(currentOwner, userId.toString())) {
-                return releaseSeat(
-                        concertId,
-                        seatId,
-                        section,
-                        rowNumber,
-                        seatNumber,
-                        userId
-                );
-            }
+        Seat seat = validateSeat(concertId, seatId);
+        if (seat.getStatus() == SeatStatus.RESERVED) {
+            throw new IllegalStateException("이미 판매된 좌석입니다.");
+        }
 
+        String userIdString = String.valueOf(userId);
+        String currentOwner = redisLockRepository.getSeatOwner(concertId, seatId);
+
+        if (Objects.equals(currentOwner, userIdString)) {
+            redisLockRepository.unlockSeat(concertId, seatId);
+            log.info("좌석 {} 선점 해제 성공 (사용자: {})", seatId, userId);
+            return SeatHoldResult.RELEASED;
+        }
+
+        if (currentOwner != null) {
             log.info(
-                    "좌석 {} - {}-{}-{} 선점 실패: 현재 소유자(userId: {}), 시도자(userId: {})",
-                    concertId,
-                    section,
-                    rowNumber,
-                    seatNumber,
+                    "좌석 {} 선점 실패: 현재 소유자(userId: {}), 시도자(userId: {})",
+                    seatId,
                     currentOwner,
                     userId
             );
             throw new IllegalStateException("이미 다른 사용자가 선택한 좌석입니다.");
         }
 
-        return holdSeat(
-                concertId,
-                seatId,
-                section,
-                rowNumber,
-                seatNumber,
-                userId
-        );
+        int currentHoldCount = redisLockRepository.countUserHeldSeats(concertId, userIdString);
+        if (currentHoldCount >= MAX_HOLD_SEAT_COUNT) {
+            throw new IllegalArgumentException("좌석은 최대 4매까지만 선택할 수 있습니다.");
+        }
+
+        // Redis를 통한 선점 시도 (HOLD는 Redis TTL로만 관리)
+        boolean isLocked = redisLockRepository.lockSeat(concertId, seatId, userIdString);
+        
+        if (!isLocked) {
+            String lockOwner = redisLockRepository.getSeatOwner(concertId, seatId);
+            if (Objects.equals(lockOwner, userIdString)) {
+                redisLockRepository.unlockSeat(concertId, seatId);
+                log.info("좌석 {} 선점 해제 성공 (사용자: {})", seatId, userId);
+                return SeatHoldResult.RELEASED;
+            }
+
+            log.info(
+                    "좌석 {} 선점 실패: 현재 소유자(userId: {}), 시도자(userId: {})",
+                    seatId,
+                    lockOwner,
+                    userId
+            );
+            throw new IllegalStateException("이미 다른 사용자가 선택한 좌석입니다.");
+        }
+
+        log.info("좌석 {} 선점 성공 (사용자: {})", seatId, userId);
+        return SeatHoldResult.HELD;
     }
 
-    private SeatHoldResult holdSeat(
-            Long concertId,
-            Long seatId,
-            String section,
-            Integer rowNumber,
-            Integer seatNumber,
-            Long userId
-    ) {
-        final String redissonLockKey = LOCK_KEY_PREFIX + seatId;
-        RLock lock = redissonClient.getLock(redissonLockKey);
-        boolean releaseRedisLockOnFailure = false;
+    // 선점했던 좌석 일괄 선점 로직
+    public BatchHoldResult holdSeatsBatch(Long concertId, List<Long> seatIds, Long userId) {
+        if (seatIds == null || seatIds.isEmpty()) {
+            throw new IllegalArgumentException("좌석 ID 목록은 비어 있을 수 없습니다.");
+        }
 
-        try {
-            // 2. DB 업데이트를 위한 짧은 시간의 락 획득 (선택 사항이지만 안전을 위해 유지)
-            if (!lock.tryLock(3, 10, TimeUnit.SECONDS)) {
-                log.info("좌석 {}에 대한 DB 업데이트 락 획득 실패", seatId);
-                redisLockRepository.unlockSeat(concertId, section, rowNumber, seatNumber); // Redis 선점 해제
-                throw new IllegalStateException("좌석 처리 중입니다. 잠시 후 다시 시도해주세요.");
-            }
-            releaseRedisLockOnFailure = true;
+        Set<Long> uniqueSeatIds = new LinkedHashSet<>(seatIds);
+        if (uniqueSeatIds.size() > MAX_HOLD_SEAT_COUNT) {
+            throw new IllegalArgumentException("좌석은 최대 4매까지만 선택할 수 있습니다.");
+        }
 
-            // 3. DB 상태 변경
+        String userIdString = String.valueOf(userId);
+        int currentHoldCount = redisLockRepository.countUserHeldSeats(concertId, userIdString);
 
-            Seat seat = seatRepository.findById(seatId)
-                    .orElseThrow(() -> new EntityNotFoundException("좌석이 존재하지 않습니다. ID: " + seatId));
+        List<Long> failedSeatIds = new ArrayList<>();
+        List<Seat> seatsToLock = new ArrayList<>();
+        List<Long> alreadyHeldByMe = new ArrayList<>();
 
-            if (!Objects.equals(seat.getSection(), section)
-                    || !Objects.equals(seat.getRowNumber(), rowNumber)
-                    || !Objects.equals(seat.getSeatNumber(), seatNumber)) {
-                redisLockRepository.unlockSeat(concertId, section, rowNumber, seatNumber); // Redis 선점 해제
-                throw new IllegalArgumentException("요청한 좌석 정보가 seatId와 일치하지 않습니다.");
+        for (Long seatId : uniqueSeatIds) {
+            Seat seat = seatRepository.findByIdAndConcertId(seatId, concertId)
+                    .orElse(null);
+
+            if (seat == null || seat.getStatus() == SeatStatus.RESERVED) {
+                failedSeatIds.add(seatId);
+                continue;
             }
 
-            seat.hold(userId, HOLD_DURATION_MINUTES);
-            seatRepository.save(seat);
-            log.info("좌석 {} 선점 성공 (사용자: {})", seatId, userId);
-            return SeatHoldResult.HELD;
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("락 획득 중 인터럽트 발생", e);
-            redisLockRepository.unlockSeat(concertId, section, rowNumber, seatNumber); // Redis 선점 해제
-            throw new IllegalStateException("좌석 선점 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
-        } catch (RuntimeException e) {
-            if (releaseRedisLockOnFailure) {
-                redisLockRepository.unlockSeat(concertId, section, rowNumber, seatNumber);
+            String owner = redisLockRepository.getSeatOwner(concertId, seat.getId());
+            if (owner == null) {
+                seatsToLock.add(seat);
+                continue;
             }
-            throw e;
-        } finally {
-            if (lock.isHeldByCurrentThread()) {
-                lock.unlock();
+
+            if (Objects.equals(owner, userIdString)) {
+                alreadyHeldByMe.add(seatId);
+            } else {
+                failedSeatIds.add(seatId);
             }
         }
+
+        if (!failedSeatIds.isEmpty()) {
+            return new BatchHoldResult(false, List.of(), failedSeatIds);
+        }
+
+        if (currentHoldCount + seatsToLock.size() > MAX_HOLD_SEAT_COUNT) {
+            throw new IllegalArgumentException("좌석은 최대 4매까지만 선택할 수 있습니다.");
+        }
+
+        List<Long> newlyLockedSeatIds = new ArrayList<>();
+        for (Seat seat : seatsToLock) {
+            boolean locked = redisLockRepository.lockSeat(
+                    concertId,
+                    seat.getId(),
+                    userIdString
+            );
+
+            if (!locked) {
+                failedSeatIds.add(seat.getId());
+                for (Long lockedSeatId : newlyLockedSeatIds) {
+                    Seat lockedSeat = seatRepository.findById(lockedSeatId)
+                            .orElse(null);
+                    if (lockedSeat != null) {
+                        redisLockRepository.unlockSeat(
+                                concertId,
+                                lockedSeat.getId()
+                        );
+                    }
+                }
+                return new BatchHoldResult(false, List.of(), failedSeatIds);
+            }
+            newlyLockedSeatIds.add(seat.getId());
+        }
+
+        List<Long> heldSeatIds = new ArrayList<>(alreadyHeldByMe);
+        heldSeatIds.addAll(newlyLockedSeatIds);
+        return new BatchHoldResult(true, heldSeatIds, List.of());
     }
 
-    private SeatHoldResult releaseSeat(
+    // 선점된 좌석 해제 로직
+    public SeatReleaseResult releaseSeatHold(
             Long concertId,
             Long seatId,
-            String section,
-            Integer rowNumber,
-            Integer seatNumber,
             Long userId
     ) {
-        final String redissonLockKey = LOCK_KEY_PREFIX + seatId;
-        RLock lock = redissonClient.getLock(redissonLockKey);
+        validateSeat(concertId, seatId);
 
-        try {
-            if (!lock.tryLock(3, 10, TimeUnit.SECONDS)) {
-                throw new IllegalStateException("좌석 처리 중입니다. 잠시 후 다시 시도해주세요.");
-            }
-
-            Seat seat = seatRepository.findById(seatId)
-                    .orElseThrow(() -> new EntityNotFoundException("좌석이 존재하지 않습니다. ID: " + seatId));
-
-            if (!Objects.equals(seat.getSection(), section)
-                    || !Objects.equals(seat.getRowNumber(), rowNumber)
-                    || !Objects.equals(seat.getSeatNumber(), seatNumber)) {
-                throw new IllegalArgumentException("요청한 좌석 정보가 seatId와 일치하지 않습니다.");
-            }
-
-            if (seat.getStatus() == SeatStatus.HOLD && Objects.equals(seat.getHeldBy(), userId)) {
-                seat.release();
-                seatRepository.save(seat);
-            }
-            redisLockRepository.unlockSeat(concertId, section, rowNumber, seatNumber);
-            log.info("좌석 {} 선점 해제 성공 (사용자: {})", seatId, userId);
-            return SeatHoldResult.RELEASED;
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("좌석 선점 해제 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
-        } finally {
-            if (lock.isHeldByCurrentThread()) {
-                lock.unlock();
-            }
+        String owner = redisLockRepository.getSeatOwner(concertId, seatId);
+        if (owner == null) {
+            return SeatReleaseResult.ALREADY_RELEASED;
         }
+
+        if (!Objects.equals(owner, String.valueOf(userId))) {
+            throw new IllegalStateException("다른 사용자가 선점한 좌석은 해제할 수 없습니다.");
+        }
+
+        redisLockRepository.unlockSeat(concertId, seatId);
+        return SeatReleaseResult.RELEASED;
+    }
+
+    private Seat validateSeat(Long concertId, Long seatId) {
+        return seatRepository.findByIdAndConcertId(seatId, concertId)
+                .orElseThrow(() -> new EntityNotFoundException("좌석이 존재하지 않습니다. ID: " + seatId));
     }
 }

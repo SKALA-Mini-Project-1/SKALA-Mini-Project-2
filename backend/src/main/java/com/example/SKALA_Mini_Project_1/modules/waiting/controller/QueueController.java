@@ -1,4 +1,4 @@
-package com.example.SKALA_Mini_Project_1.modules.waiting.controller;
+package com.example.SKALA_Mini_Project_1.domain.Waiting.controller;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -6,10 +6,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import com.example.SKALA_Mini_Project_1.modules.waiting.service.QueueService;
-
 import java.util.Map;
+
+
+import com.example.SKALA_Mini_Project_1.domain.Waiting.service.QueueService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -44,22 +44,23 @@ public class QueueController {
         ));
     }
 
-    @GetMapping("/can-enter")
-        public ResponseEntity<?> canEnter(
+
+    @PostMapping("/try-enter-seat")
+        public ResponseEntity<?> tryEnterSeat(
                 @RequestParam Long concertId,
-                @RequestParam String userId) {
+                @RequestParam String userId
+        ) {
 
-        boolean allowed = queueService.canEnter(concertId, userId);
+        String token = queueService.tryEnterSeat(concertId, userId);
 
-        if (allowed) {
-                return ResponseEntity.ok(Map.of(
-                        "allowed", true,
-                        "redirectUrl", "http://localhost:8081/seats?concertId=" + concertId
-                ));
+        if (token == null) {
+                return ResponseEntity.status(403)
+                        .body("아직 입장 불가");
         }
 
         return ResponseEntity.ok(Map.of(
-                "allowed", false
+                "entryToken", token,
+                "redirectUrl", "http://localhost:8081/api/seats/seats?token=" + token
         ));
         }
 }

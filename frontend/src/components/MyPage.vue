@@ -1,8 +1,25 @@
 <script setup lang="ts">
-import { AlertCircle, QrCode, X } from 'lucide-vue-next';
-import { ref } from 'vue';
+import { AlertCircle, LoaderCircle, QrCode, X } from 'lucide-vue-next';
+import { onMounted, ref } from 'vue';
+import { apiRequest, ApiError } from '../services/api';
+import { clearAuth, getAuthUser, getToken } from '../services/auth';
+
+interface MyInfoResponse {
+  userId: number;
+  email: string;
+  name: string;
+  message: string;
+}
+
+const emit = defineEmits<{
+  navigate: [path: string];
+  loggedOut: [];
+}>();
 
 const showQr = ref(false);
+const loadingProfile = ref(true);
+const profileError = ref('');
+const myInfo = ref<MyInfoResponse | null>(null);
 
 const bookings = [
   {
@@ -26,11 +43,92 @@ const bookings = [
     statusLabel: '관람완료'
   }
 ];
+
+const loadMyInfo = async () => {
+  const token = getToken();
+
+  if (!token) {
+    loadingProfile.value = false;
+    profileError.value = '로그인이 필요합니다.';
+    return;
+  }
+
+  loadingProfile.value = true;
+  profileError.value = '';
+
+  try {
+    myInfo.value = await apiRequest<MyInfoResponse>('/api/users/me', {
+      method: 'GET',
+      token
+    });
+  } catch (error) {
+    profileError.value = error instanceof ApiError ? error.message : '사용자 정보를 불러오지 못했습니다.';
+
+    if (error instanceof ApiError && error.status === 401) {
+      clearAuth();
+      emit('loggedOut');
+    }
+  } finally {
+    loadingProfile.value = false;
+  }
+};
+
+const logout = async () => {
+  const token = getToken();
+
+  try {
+    if (token) {
+      await apiRequest<{ message: string; status: string }>('/api/users/logout', {
+        method: 'POST',
+        token
+      });
+    }
+  } catch {
+    // 서버 로그아웃 실패 시에도 클라이언트 세션은 제거
+  } finally {
+    clearAuth();
+    emit('loggedOut');
+    emit('navigate', '/login');
+  }
+};
+
+onMounted(() => {
+  const cachedUser = getAuthUser();
+  if (!cachedUser && !getToken()) {
+    loadingProfile.value = false;
+    profileError.value = '로그인이 필요합니다.';
+    return;
+  }
+
+  void loadMyInfo();
+});
 </script>
 
 <template>
   <div class="mx-auto max-w-[1000px] p-3 sm:p-4 md:p-8">
     <h2 class="mb-6 border-b-2 border-[#333] pb-2 text-2xl font-bold text-[#333]">마이페이지</h2>
+
+    <div v-if="loadingProfile" class="mb-6 flex items-center gap-2 rounded-sm border border-[#eee] bg-[#fafafa] p-4 text-sm text-[#666]">
+      <LoaderCircle class="animate-spin" :size="18" />
+      사용자 정보를 불러오는 중입니다.
+    </div>
+
+    <div v-else-if="profileError" class="mb-6 rounded-sm border border-red-200 bg-red-50 p-4">
+      <p class="text-sm font-bold text-red-600">{{ profileError }}</p>
+      <button class="mt-3 h-10 rounded-sm bg-[#FF6B00] px-4 text-sm font-bold text-white" @click="emit('navigate', '/login')">
+        로그인 페이지로 이동
+      </button>
+    </div>
+
+    <div v-else-if="myInfo" class="mb-6 rounded-sm border border-[#e0e0e0] bg-white p-4 md:p-5">
+      <div class="mb-3 text-sm font-bold text-[#666]">회원 정보</div>
+      <div class="space-y-1 text-sm text-[#333]">
+        <div><span class="mr-2 text-[#666]">이름</span>{{ myInfo.name }}</div>
+        <div><span class="mr-2 text-[#666]">이메일</span>{{ myInfo.email }}</div>
+        <div><span class="mr-2 text-[#666]">회원번호</span>{{ myInfo.userId }}</div>
+      </div>
+      <button class="mt-4 h-9 rounded-sm border border-[#ddd] px-3 text-sm font-bold text-[#666]" @click="logout">로그아웃</button>
+    </div>
 
     <div class="flex flex-col gap-8 md:flex-row">
       <div class="w-full space-y-1 md:w-48">

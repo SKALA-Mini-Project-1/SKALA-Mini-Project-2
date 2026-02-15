@@ -5,10 +5,7 @@ public class RedisKeyGenerator {
         return "queue:concert:" + concertId;
     }
 
-    public static String seatLockKey(Long concertId, String section, Integer rowNumber, Integer seatNumber) {
-        return "seat:concert:" + concertId
-                + ":section:" + section
-                + ":row:" + rowNumber
-                + ":seat:" + seatNumber;
+    public static String seatLockKey(Long concertId, Long seatId) {
+        return "seat:concert:" + concertId + ":seatId:" + seatId;
     }
 }

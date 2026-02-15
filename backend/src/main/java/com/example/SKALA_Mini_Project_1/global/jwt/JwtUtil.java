@@ -82,4 +82,23 @@ public class JwtUtil {
                 .parseClaimsJws(token)
                 .getBody();
     }
+
+    // 대기열 입장 토큰 생성
+    public String generateQueuePassToken(Long userId, String email, Long concertId) {
+
+        Date now = new Date();
+        Date expiryDate = new Date(now.getTime() + 60000); // 1분 유효 (우리가 정함)
+
+        return Jwts.builder()
+                .setSubject(String.valueOf(userId))
+                .claim("email", email)
+                .claim("concertId", concertId)
+                .claim("type", "QUEUE_PASS")
+                .claim("oneTime", true)
+                .setIssuedAt(now)
+                .setExpiration(expiryDate)
+                .signWith(secretKey, SignatureAlgorithm.HS256)
+                .compact();
+    }
+
 }
