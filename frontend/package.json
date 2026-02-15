@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@tosspayments/payment-widget-sdk": "^0.12.1",
+    "@tosspayments/tosspayments-sdk": "^2.5.0",
     "lucide-vue-next": "^0.522.0",
     "vue": "^3.5.13"
   },

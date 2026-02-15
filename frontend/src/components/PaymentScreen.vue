@@ -240,13 +240,12 @@ const handlePayment = async () => {
 </template> -->
 
 <script setup>
-import { ref, computed } from 'vue'
-import { loadPaymentWidget } from '@tosspayments/payment-widget-sdk'
 
-// 대기 유틸 함수
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
+console.log("PaymentScreen mounted")
+
+import { ref, computed } from 'vue'
+import { loadTossPayments } from '@tosspayments/payment-sdk'
+
 
 
 // -----------------------------
@@ -258,25 +257,24 @@ const TOSS_CLIENT_KEY = import.meta.env.VITE_TOSS_CLIENT_KEY || import.meta.env.
 // -----------------------------
 // 입력값 (임시 테스트용)
 // -----------------------------
-const bookingId = ref('')          // UUID
-const userId = ref('')             // Long (숫자)
-const seatId = ref('')             // Long (숫자)
-const amount = ref('1000')         // BigDecimal (문자열로 받아도 OK)
+const bookingId = ref('')     // UUID
+const userId = ref('')        // Long (create에 사용)
+const seatId = ref('')        // Long (create에 사용)
+const amount = ref('1000')    // BigDecimal
 const orderName = ref('Ticket Payment')
 
+// submit은 현재 백엔드가 UUID 헤더를 요구했었으니 테스트용 UUID를 따로 둠
+const submitUserUuid = ref('00000000-0000-0000-0000-000000000002')
+
 // -----------------------------
-// 상태/로그
+// 상태
 // -----------------------------
 const loading = ref(false)
 const errorMsg = ref('')
 const createResp = ref(null)
 const submitResp = ref(null)
 
-// 위젯 렌더링 상태
-const widgetReady = ref(false)
-let paymentWidget = null
-
-const canPay = computed(() => {
+const canStart = computed(() => {
   return Boolean(bookingId.value?.trim())
     && String(userId.value).trim() !== ''
     && String(seatId.value).trim() !== ''
@@ -308,14 +306,14 @@ async function apiFetch(path, options = {}) {
 }
 
 // -----------------------------
-// 1) create
+// 1) create (DTO 기준)
 // -----------------------------
 async function createPayment() {
   const payload = {
     bookingId: bookingId.value.trim(),
     userId: Number(userId.value),
     seatId: Number(seatId.value),
-    amount: Number(amount.value), // BigDecimal은 JSON number로 보내도 Jackson이 잘 받음
+    amount: Number(amount.value),
   }
 
   return await apiFetch('/payments/create', {
@@ -325,65 +323,42 @@ async function createPayment() {
 }
 
 // -----------------------------
-// 2) submit
-//  - 엔드포인트/파라미터 방식은 프로젝트마다 달라서 "가장 흔한" 형태로 작성
-//  - 만약 네 백엔드가 다른 방식이면 여기만 바꾸면 됨.
+// 2) submit (컨트롤러 기준: 헤더 X-USER-ID: UUID)
 // -----------------------------
 async function submitPayment(paymentId) {
-  const TEST_USER_UUID = "00000000-0000-0000-0000-000000000002"
+  const headerUuid = submitUserUuid.value.trim()
 
-  // (A) 가장 흔한 형태: POST /payments/{paymentId}/submit?userId=2
-  // (B) 혹은 헤더로 받는 경우: X-User-Id
-  // 둘 다 같이 보내서 백엔드가 어느 쪽이든 받게 해둠.
   return await apiFetch(`/payments/${paymentId}/submit`, {
     method: 'POST',
-    body: JSON.stringify({}), // 바디는 필요 없음
+    body: JSON.stringify({}),
     headers: {
-      'X-USER-ID': TEST_USER_UUID
-    }
+      'X-USER-ID': headerUuid,
+    },
   })
 }
 
 // -----------------------------
-// 3) 위젯 렌더 + 결제 요청
+// 3) 토스 결제창 요청 (redirect)
 // -----------------------------
-async function renderWidgetAndPay(submitData) {
-  const customerKey = submitData.customerKey
-  const payAmount = Number(submitData.amount)
+async function openTossCheckout(submitData) {
+  const tossPayments = await loadTossPayments(TOSS_CLIENT_KEY)
 
-  paymentWidget = await loadPaymentWidget(TOSS_CLIENT_KEY, customerKey)
-
-  paymentWidget.renderPaymentMethods('#payment-method', { value: payAmount })
-  paymentWidget.renderAgreement('#agreement')
-
-  // ✅ 렌더 완료 대기(가장 확실한 임시 해결)
-  await sleep(600)
-
-  widgetReady.value = true
-}
-
-
-async function requestPayment() {
-  if (!paymentWidget || !submitResp.value) return
-
-  const s = submitResp.value
-  await paymentWidget.requestPayment({
-    orderId: s.orderId,
-    orderName: s.orderName || orderName.value,
-    successUrl: s.successUrl,
-    failUrl: s.failUrl,
+  await tossPayments.requestPayment('카드', {
+    amount: Number(submitData.amount),
+    orderId: submitData.orderId,
+    orderName: submitData.orderName || orderName.value,
+    successUrl: submitData.successUrl,
+    failUrl: submitData.failUrl,
   })
 }
 
 // -----------------------------
-// 버튼 핸들러: create → submit → 위젯 렌더
+// 버튼 핸들러: create → submit → 결제창
 // -----------------------------
-async function handleStartPayment() {
+async function handlePay() {
   errorMsg.value = ''
   createResp.value = null
   submitResp.value = null
-  widgetReady.value = false
-  paymentWidget = null
 
   if (!TOSS_CLIENT_KEY) {
     errorMsg.value = 'VITE_TOSS_CLIENT_KEY 또는 VITE_TEST_CLIENT_KEY가 없습니다. frontend/.env 확인 후 dev 서버 재시작하세요.'
@@ -396,13 +371,11 @@ async function handleStartPayment() {
     const c = await createPayment()
     createResp.value = c
 
-    // PaymentCreateResponse: paymentId, status, createdAt, expiredAt
-    const paymentId = c.paymentId
-
-    const s = await submitPayment(paymentId)
+    const s = await submitPayment(c.paymentId)
     submitResp.value = s
 
-    await renderWidgetAndPay(s)
+    // submit에서 내려준 orderName을 우선 사용
+    await openTossCheckout(s)
   } catch (e) {
     errorMsg.value = e?.message || String(e)
   } finally {
@@ -413,7 +386,7 @@ async function handleStartPayment() {
 
 <template>
   <div style="max-width: 720px; margin: 0 auto; padding: 16px;">
-    <h2 style="margin-bottom: 12px;">Toss 결제 위젯 테스트 화면 (임시)</h2>
+    <h2 style="margin-bottom: 12px;">Toss 결제창(redirect) 테스트 화면 (임시)</h2>
 
     <div style="display: grid; gap: 10px; padding: 12px; border: 1px solid #ddd; border-radius: 8px;">
       <label>
@@ -422,12 +395,12 @@ async function handleStartPayment() {
       </label>
 
       <label>
-        userId (Long)
+        userId (Long) - create에 사용
         <input v-model="userId" placeholder="2" style="width: 100%; padding: 8px;" />
       </label>
 
       <label>
-        seatId (Long)
+        seatId (Long) - create에 사용
         <input v-model="seatId" placeholder="3" style="width: 100%; padding: 8px;" />
       </label>
 
@@ -437,16 +410,16 @@ async function handleStartPayment() {
       </label>
 
       <label>
-        orderName
-        <input v-model="orderName" placeholder="Ticket Payment" style="width: 100%; padding: 8px;" />
+        submitUserUuid (UUID) - submit 헤더 X-USER-ID
+        <input v-model="submitUserUuid" placeholder="00000000-0000-0000-0000-000000000002" style="width: 100%; padding: 8px;" />
       </label>
 
       <button
-        :disabled="loading || !canPay"
-        @click="handleStartPayment"
+        :disabled="loading || !canStart"
+        @click="handlePay"
         style="padding: 10px; border-radius: 8px; border: 1px solid #333; cursor: pointer;"
       >
-        {{ loading ? '진행 중...' : '결제 준비 (create → submit → 위젯 렌더)' }}
+        {{ loading ? '진행 중...' : '결제하기 (create → submit → 토스 결제창)' }}
       </button>
 
       <div v-if="errorMsg" style="color: #b00020; white-space: pre-wrap;">
@@ -464,26 +437,8 @@ async function handleStartPayment() {
         <div style="font-weight: 700; margin-bottom: 6px;">submit 응답</div>
         <pre style="margin: 0; white-space: pre-wrap;">{{ JSON.stringify(submitResp, null, 2) }}</pre>
       </div>
-
-      <div v-if="submitResp" style="padding: 12px; border: 1px solid #ddd; border-radius: 8px;">
-        <div style="font-weight: 700; margin-bottom: 10px;">결제 위젯</div>
-
-        <div id="payment-method" style="min-height: 260px;"></div>
-        <div id="agreement" style="margin-top: 12px;"></div>
-
-        <button
-          :disabled="!widgetReady"
-          @click="requestPayment"
-          style="margin-top: 12px; padding: 10px; border-radius: 8px; border: 1px solid #333; cursor: pointer;"
-        >
-          결제 요청 (requestPayment)
-        </button>
-
-        <div v-if="!widgetReady" style="margin-top: 8px; opacity: 0.8;">
-          위젯 렌더 중이거나 준비 전입니다.
-        </div>
-      </div>
     </div>
   </div>
 </template>
+
 
