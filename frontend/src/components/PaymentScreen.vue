@@ -202,8 +202,9 @@ const handlePayment = async () => {
           <h3 class="mb-4 border-b border-[#eee] pb-2 text-lg font-bold">결제 정보</h3>
 
           <div class="mb-6 space-y-4">
-            <div><div class="mb-1 text-xs text-[#999]">공연명</div><div class="font-bold text-[#333]">IU 2025 HEREH WORLD TOUR</div></div>
+            <div><div class="mb-1 text-xs text-[#999]">공연명</div><div class="font-bold text-[#333]">{{ bookingData.concertTitle || '선택한 공연' }}</div></div>
             <div><div class="mb-1 text-xs text-[#999]">일시</div><div class="text-sm text-[#333]">{{ bookingData.date }} {{ bookingData.session }}회차</div></div>
+            <div><div class="mb-1 text-xs text-[#999]">장소</div><div class="text-sm text-[#333]">{{ bookingData.concertVenue || '-' }}</div></div>
             <div>
               <div class="mb-1 text-xs text-[#999]">선택좌석</div>
               <div class="space-y-1 text-sm text-[#333]">

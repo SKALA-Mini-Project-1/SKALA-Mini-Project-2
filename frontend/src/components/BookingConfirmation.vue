@@ -37,9 +37,9 @@ const totalAmount = computed(() => props.bookingData.seats.reduce((sum, seat) =>
       <div class="p-4 sm:p-6">
         <table class="w-full text-xs sm:text-sm">
           <tbody class="divide-y divide-[#f0f0f0]">
-            <tr><th class="w-32 py-3 text-left font-normal text-[#666]">공연명</th><td class="py-3 font-bold text-[#333]">IU 2025 HEREH WORLD TOUR ENCORE</td></tr>
+            <tr><th class="w-32 py-3 text-left font-normal text-[#666]">공연명</th><td class="py-3 font-bold text-[#333]">{{ bookingData.concertTitle || '선택한 공연' }}</td></tr>
             <tr><th class="py-3 text-left font-normal text-[#666]">일시</th><td class="py-3 text-[#333]">{{ bookingData.date }} {{ bookingData.session }}회차</td></tr>
-            <tr><th class="py-3 text-left font-normal text-[#666]">장소</th><td class="py-3 text-[#333]">서울 상암 월드컵경기장</td></tr>
+            <tr><th class="py-3 text-left font-normal text-[#666]">장소</th><td class="py-3 text-[#333]">{{ bookingData.concertVenue || '-' }}</td></tr>
             <tr>
               <th class="py-3 text-left font-normal text-[#666]">좌석</th>
               <td class="py-3 text-[#333]"><div v-for="(seat, index) in bookingData.seats" :key="`${seat.id}-${index}`">{{ seat.grade }} {{ seat.section }}구역 {{ seat.row }}열 {{ seat.col }}번</div></td>
@@ -72,7 +72,7 @@ const totalAmount = computed(() => props.bookingData.seats.reduce((sum, seat) =>
       </button>
       <button
         class="flex items-center justify-center space-x-2 rounded-sm bg-[#333] py-3 font-bold text-white transition-colors hover:bg-black md:py-4"
-        @click="emit('navigate', '/concert/detail')"
+        @click="emit('navigate', '/main')"
       >
         <Home :size="20" />
         <span>메인으로 돌아가기</span>
