@@ -9,13 +9,18 @@ import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingItemR
 import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository;
 import com.example.SKALA_Mini_Project_1.modules.seats.repository.SeatBookingView;
 import com.example.SKALA_Mini_Project_1.modules.seats.repository.SeatRepository;
+import com.example.SKALA_Mini_Project_1.modules.users.User;
+import com.example.SKALA_Mini_Project_1.modules.users.UserRepository;
+import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 @Service
@@ -28,6 +33,7 @@ public class BookingService {
     private final RedisLockRepository redisLockRepository;
     private final BookingRepository bookingRepository;
     private final BookingItemRepository bookingItemRepository;
+    private final UserRepository userRepository;
 
     @Transactional
     public CreateBookingResponse createBooking(Long userId, CreateBookingRequest request) {
@@ -117,5 +123,101 @@ public class BookingService {
                 .totalPrice(saved.getTotalPrice())
                 .seatIds(new ArrayList<>(uniqueSeatIds))
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getBookingDetail(Long userId, UUID bookingId) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new EntityNotFoundException("예약 정보를 찾을 수 없습니다."));
+
+        if (!Objects.equals(booking.getUserId(), userId)) {
+            throw new AccessDeniedException("본인 예약만 조회할 수 있습니다.");
+        }
+
+        BookingRepository.BookingConcertInfo concertInfo = bookingRepository.findBookingConcertInfo(bookingId)
+                .orElseThrow(() -> new EntityNotFoundException("예약 요약 정보를 찾을 수 없습니다."));
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new EntityNotFoundException("사용자 정보를 찾을 수 없습니다."));
+
+        List<Object[]> seatRows = bookingItemRepository.findBookedSeatDetails(bookingId);
+        List<Map<String, Object>> seats = new ArrayList<>();
+        List<Long> seatIds = new ArrayList<>();
+
+        for (Object[] row : seatRows) {
+            Long seatId = toLong(row[0]);
+            seatIds.add(seatId);
+            seats.add(Map.of(
+                    "seatId", seatId,
+                    "section", row[1] == null ? null : row[1].toString(),
+                    "rowNumber", toInteger(row[2]),
+                    "seatNumber", toInteger(row[3]),
+                    "grade", row[4] == null ? null : row[4].toString(),
+                    "price", toBigDecimal(row[5])
+            ));
+        }
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        OffsetDateTime expiresAt = booking.getExpiresAt();
+        long remainingSeconds = 0;
+        if (expiresAt != null) {
+            remainingSeconds = Math.max(0, ChronoUnit.SECONDS.between(now, expiresAt));
+        }
+        boolean payable = "HOLDING".equalsIgnoreCase(booking.getStatus()) && remainingSeconds > 0;
+
+        Map<String, Object> booker = new HashMap<>();
+        booker.put("name", user.getName());
+        booker.put("email", user.getEmail());
+        booker.put("phone", user.getPhone());
+
+        Map<String, Object> concert = new HashMap<>();
+        concert.put("concertName", concertInfo.getConcertTitle());
+        concert.put(
+                "showDateTime",
+                concertInfo.getShowTime() == null
+                        ? null
+                        : OffsetDateTime.ofInstant(concertInfo.getShowTime(), ZoneOffset.UTC)
+        );
+        concert.put("scheduleId", booking.getScheduleId());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("bookingId", booking.getId());
+        response.put("status", booking.getStatus());
+        response.put("totalPrice", booking.getTotalPrice());
+        response.put("expiresAt", expiresAt);
+        response.put("remainingSeconds", remainingSeconds);
+        response.put("payable", payable);
+        response.put("seatIds", seatIds);
+        response.put("seats", seats);
+        response.put("booker", booker);
+        response.put("concert", concert);
+        return response;
+    }
+
+    private Long toLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        return ((Number) value).longValue();
+    }
+
+    private Integer toInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        return ((Number) value).intValue();
+    }
+
+    private BigDecimal toBigDecimal(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof BigDecimal bd) {
+            return bd;
+        }
+        if (value instanceof Number number) {
+            return BigDecimal.valueOf(number.doubleValue());
+        }
+        return new BigDecimal(value.toString());
     }
 }
