@@ -40,14 +40,8 @@ dependencies {
 	runtimeOnly 'org.postgresql:postgresql'
 	annotationProcessor 'org.projectlombok:lombok'
 	
-	testImplementation 'org.springframework.boot:spring-boot-starter-test'
-	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-    // 이메일 전송을 위한 의존성
+	// 이메일 전송을 위한 의존성
     implementation 'org.springframework.boot:spring-boot-starter-mail'
-
-    compileOnly 'org.projectlombok:lombok'
-    runtimeOnly 'org.postgresql:postgresql'
-    annotationProcessor 'org.projectlombok:lombok'
 
 	// .env 파일을 로드하기 위한 라이브러리
 	implementation 'io.github.cdimascio:dotenv-java:3.0.0'
@@ -57,6 +51,9 @@ dependencies {
 
     // 분산 락을 위한 Redisson 설정
     implementation 'org.redisson:redisson-spring-boot-starter:3.43.0'
+
+    // WebFlux 의존성 추가
+    implementation 'org.springframework.boot:spring-boot-starter-webflux'
 }
 
 tasks.named('test') {

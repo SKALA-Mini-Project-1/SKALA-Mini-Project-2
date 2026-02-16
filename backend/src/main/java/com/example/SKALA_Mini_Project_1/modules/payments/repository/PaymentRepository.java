@@ -26,4 +26,6 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     Optional<Payment> findByPgOrderIdForUpdate(@Param("orderId") String orderId);
 
     Optional<Payment> findByBookingId(UUID bookingId);
+
+    Optional<Payment> findByPgOrderId(String pgOrderId);
 }

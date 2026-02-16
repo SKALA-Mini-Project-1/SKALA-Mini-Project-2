@@ -120,7 +120,7 @@ public class BookingService {
                 .bookingId(saved.getId())
                 .status(saved.getStatus())
                 .expiresAt(saved.getExpiresAt())
-                .totalPrice(saved.getTotalPrice())
+                .totalPrice(saved.getTotalPrice().longValue())
                 .seatIds(new ArrayList<>(uniqueSeatIds))
                 .build();
     }

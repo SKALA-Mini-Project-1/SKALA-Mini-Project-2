@@ -51,6 +51,24 @@ export type Step =
   | 'error'
   | 'soldout'
 
+export type BookingData = {
+  bookingId: string;   // create에 보낼 값
+  seats: Seat[];
+  date: string;
+  session: number;
+};
+
+// 완료 화면용 타입
+export type BookingDetailResponse = {
+  bookingId: string;
+  bookingNumber: string;
+  concertTitle: string;
+  venue: string;
+  date: string;
+  session: number;
+  seats: Seat[];
+  totalAmount: number;
+};
 export interface ConcertDateSlot {
   day: number
   weekday: string

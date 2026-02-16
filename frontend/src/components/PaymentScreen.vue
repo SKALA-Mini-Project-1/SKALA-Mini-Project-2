@@ -1,14 +1,12 @@
 <script setup lang="ts">
+import { ANONYMOUS, loadTossPayments } from '@tosspayments/tosspayments-sdk';
 import { Loader2 } from 'lucide-vue-next';
 import { computed, reactive, ref } from 'vue';
+import { getAuthUser } from '../services/auth';
 import type { BookingData } from '../types';
 
 const props = defineProps<{
   bookingData: BookingData;
-}>();
-
-const emit = defineEmits<{
-  paymentComplete: [];
 }>();
 
 const isProcessing = ref(false);
@@ -34,12 +32,75 @@ const toggleAll = () => {
   agreements.refund = next;
 };
 
-const handlePayment = () => {
-  isProcessing.value = true;
-  setTimeout(() => {
+const handlePayment = async () => {
+  if (isProcessing.value) {
+    return;
+  }
+
+  if (!agreements.terms || !agreements.privacy || !agreements.refund) {
+    return;
+  }
+
+  const clientKey = import.meta.env.VITE_TOSS_CLIENT_KEY as string | undefined;
+  if (!clientKey) {
+    alert('결제 설정이 누락되었습니다. 관리자에게 문의해주세요.');
+    return;
+  }
+
+  try {
+    isProcessing.value = true;
+
+    const tossPayments = await loadTossPayments(clientKey);
+    const authUser = getAuthUser();
+    const amount = totalAmount.value;
+    const orderId = `ORDER_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+    const orderName = props.bookingData.concertTitle
+      ? `${props.bookingData.concertTitle} 티켓`
+      : '공연 티켓';
+    const customerName = authUser?.name ?? '고객';
+    const successUrl = `${window.location.origin}/payments/success`;
+    const failUrl = `${window.location.origin}/payments/fail`;
+
+    const customerKey = authUser?.userId ? `USER_${authUser.userId}` : ANONYMOUS;
+    const payment = tossPayments.payment({ customerKey });
+
+    if (paymentMethod.value === 'vbank') {
+      await payment.requestPayment({
+        method: 'VIRTUAL_ACCOUNT',
+        amount: { currency: 'KRW', value: amount },
+        orderId,
+        orderName,
+        customerName,
+        successUrl,
+        failUrl
+      });
+      return;
+    }
+
+    const isTossPay = paymentMethod.value === 'toss' || paymentMethod.value === 'simple';
+
+    await payment.requestPayment({
+      method: 'CARD',
+      amount: { currency: 'KRW', value: amount },
+      orderId,
+      orderName,
+      customerName,
+      successUrl,
+      failUrl,
+      card: isTossPay
+        ? {
+            flowMode: 'DIRECT',
+            easyPay: 'TOSSPAY'
+          }
+        : undefined
+    });
+  } catch (error) {
+    console.error('Toss Payments error:', error);
+    const message = error instanceof Error ? error.message : '결제창을 여는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
+    alert(message);
+  } finally {
     isProcessing.value = false;
-    emit('paymentComplete');
-  }, 2000);
+  }
 };
 </script>
 

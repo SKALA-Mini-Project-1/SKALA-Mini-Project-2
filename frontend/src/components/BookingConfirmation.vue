@@ -1,21 +1,54 @@
 <script setup lang="ts">
-import { Check, Home, QrCode, Smartphone } from 'lucide-vue-next';
-import { computed } from 'vue';
-import type { BookingData } from '../types';
-
-const props = defineProps<{
-  bookingData: BookingData;
-}>();
+import { Check, Home, QrCode, Smartphone } from "lucide-vue-next";
+import { computed, onMounted, ref } from "vue";
+import type { BookingData } from "../types";
 
 const emit = defineEmits<{
   navigate: [path: string];
 }>();
 
-const totalAmount = computed(() => props.bookingData.seats.reduce((sum, seat) => sum + seat.price, 0));
+const props = defineProps<{
+  bookingData?: BookingData | null;
+}>();
+
+const bookingData = ref<BookingData | null>(props.bookingData ?? null);
+const errorMessage = ref<string>("");
+
+const totalAmount = computed(() => {
+  if (!bookingData.value) return 0;
+  return bookingData.value.seats.reduce((sum, seat) => sum + seat.price, 0);
+});
+
+onMounted(async () => {
+  if (bookingData.value) {
+    return;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const bookingId = params.get("bookingId") ?? "";
+  if (!bookingId) {
+    errorMessage.value = "예매 정보를 불러올 수 없습니다. (bookingId 누락)";
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/bookings/${bookingId}`, { method: "GET" });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || `booking fetch failed: ${res.status}`);
+    }
+    bookingData.value = await res.json();
+  } catch (e: any) {
+    errorMessage.value = e?.message ?? "예매 정보를 불러오는 중 오류가 발생했습니다.";
+  }
+});
 </script>
 
 <template>
   <div class="mx-auto max-w-[800px] p-3 sm:p-4 md:p-8">
+    <div v-if="errorMessage" class="mb-6 rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-600">
+      {{ errorMessage }}
+    </div>
     <div class="mb-8 text-center md:mb-12">
       <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#FF6B00] shadow-lg md:mb-6 md:h-20 md:w-20">
         <Check :size="40" class="text-white" />

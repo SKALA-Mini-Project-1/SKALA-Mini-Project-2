@@ -2,7 +2,6 @@
 
 package com.example.SKALA_Mini_Project_1.modules.payments.service;
 
-import java.math.BigDecimal;
 import java.util.Base64;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
@@ -23,10 +22,15 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 
+import com.example.SKALA_Mini_Project_1.modules.bookings.domain.Booking;
+import com.example.SKALA_Mini_Project_1.modules.payments.client.TossConfirmResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmRequest;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentGetResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentSubmitResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.TossWebhookRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.Payment;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.PaymentStatus;
 import com.example.SKALA_Mini_Project_1.modules.payments.repository.PaymentRepository;
@@ -41,6 +45,8 @@ public class PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final RestTemplate restTemplate; // ✅ Bean 주입
+    private final com.example.SKALA_Mini_Project_1.modules.payments.client.TossPaymentsClient tossPaymentsClient;
+    private final com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository bookingRepository;
 
     private static final Map<PaymentStatus, Set<PaymentStatus>> transitionMap = new EnumMap<>(PaymentStatus.class);
 
@@ -175,7 +181,7 @@ public class PaymentService {
     private String tossApiBase;
 
     @Transactional
-    public void handleTossSuccess(String paymentKey, String orderId, BigDecimal amount) {
+    public void handleTossSuccess(String paymentKey, String orderId, Long amount) {
 
         // 1) 결제 조회 (비관락)
         Payment payment = paymentRepository.findByPgOrderIdForUpdate(orderId)
@@ -234,7 +240,7 @@ public class PaymentService {
     // ----------------------------------------------------------------------
     // Toss Confirm Call
     // ----------------------------------------------------------------------
-    private String tossConfirm(String paymentKey, String orderId, BigDecimal amount) {
+    private String tossConfirm(String paymentKey, String orderId, Long amount) {
 
         String basicToken = Base64.getEncoder().encodeToString(
                 (tossSecretKey + ":").getBytes(StandardCharsets.UTF_8)
@@ -288,5 +294,95 @@ public class PaymentService {
     paymentRepository.save(payment);
     }
 
+    @Transactional
+    public PaymentConfirmResponse confirm(PaymentConfirmRequest request) {
+
+        Payment payment = paymentRepository.findByPgOrderId(request.getOrderId())
+                .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
+
+        // 멱등 처리
+        if (payment.getStatus() == PaymentStatus.PAID
+                || payment.getStatus() == PaymentStatus.CONFIRMED) {
+
+            return new PaymentConfirmResponse(
+                    payment.getId(),
+                    payment.getBookingId(),
+                    payment.getStatus().name()
+            );
+        }
+
+        if (payment.getStatus() != PaymentStatus.PAYING) {
+            throw new IllegalStateException("Invalid payment status: " + payment.getStatus());
+        }
+
+        long dbAmount = payment.getAmount().longValue();
+        if (dbAmount != request.getAmount()) {
+            throw new IllegalStateException("Amount mismatch");
+        }
+
+        // 🔥 토스 승인 API 호출
+        TossConfirmResponse tossResponse = tossPaymentsClient.confirm(
+                request.getPaymentKey(),
+                request.getOrderId(),
+                request.getAmount()
+        );
+
+        payment.setPgPaymentKey(tossResponse.getPaymentKey());
+        payment.setPgStatus(tossResponse.getStatus());
+        payment.setCompletedAt(OffsetDateTime.now());
+        payment.changeStatus(PaymentStatus.PAID);
+
+        Booking booking = bookingRepository.findById(payment.getBookingId())
+                .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
+
+        booking.setStatus("CONFIRMED");
+        booking.setConfirmedAt(OffsetDateTime.now());
+
+        return new PaymentConfirmResponse(
+                payment.getId(),
+                booking.getId(),
+                payment.getStatus().name()
+        );
+    }
+
+    @Transactional
+    public void handleWebhook(TossWebhookRequest request) {
+
+        Payment payment = paymentRepository.findByPgOrderId(request.getOrderId())
+                .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
+
+        // 이미 완료된 건 무시 (멱등성)
+        if (payment.getStatus() == PaymentStatus.PAID
+                || payment.getStatus() == PaymentStatus.CONFIRMED) {
+            return;
+        }
+
+        if ("DONE".equalsIgnoreCase(request.getStatus())) {
+
+            payment.setPgPaymentKey(request.getPaymentKey());
+            payment.setPgStatus(request.getStatus());
+            payment.setCompletedAt(OffsetDateTime.now());
+            payment.changeStatus(PaymentStatus.PAID);
+
+            Booking booking = bookingRepository.findById(payment.getBookingId())
+                    .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
+
+            booking.setStatus("CONFIRMED");
+            booking.setConfirmedAt(OffsetDateTime.now());
+
+        } else if ("CANCELED".equalsIgnoreCase(request.getStatus())
+                || "FAILED".equalsIgnoreCase(request.getStatus())) {
+
+            payment.changeStatus(PaymentStatus.FAILED);
+
+            Booking booking = bookingRepository.findById(payment.getBookingId())
+                    .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
+
+            booking.setStatus("CANCELED");
+            booking.setCanceledAt(OffsetDateTime.now());
+        }
+    }
+
+    
 
 }

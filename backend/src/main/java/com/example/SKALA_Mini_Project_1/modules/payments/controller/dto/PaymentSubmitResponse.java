@@ -7,8 +7,6 @@ import com.example.SKALA_Mini_Project_1.modules.payments.domain.Payment;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
-import java.math.BigDecimal;
-
 
 
 @Getter
@@ -23,7 +21,7 @@ public class PaymentSubmitResponse {
 
     private UUID bookingId;
 
-    private BigDecimal amount;
+    private Long amount;
 
     // PG 위젯 호출용 값들
     private String orderId;
