@@ -113,6 +113,7 @@ export interface Seat {
 }
 
 export interface BookingData {
+  bookingId?: string | null
   bookingNumber: string | null
   concertId: string | null
   concertTitle: string | null

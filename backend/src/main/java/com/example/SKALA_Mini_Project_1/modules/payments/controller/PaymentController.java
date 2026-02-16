@@ -27,7 +27,7 @@ import com.example.SKALA_Mini_Project_1.modules.payments.service.PaymentService;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/payments")
+@RequestMapping("/api/payments")
 public class PaymentController {
 
     private final PaymentService paymentService;
@@ -47,7 +47,7 @@ public class PaymentController {
     @PostMapping("/{paymentId}/submit")
     public PaymentSubmitResponse submit(
             @PathVariable UUID paymentId,
-            @RequestHeader("X-USER-ID") UUID userId
+            @RequestHeader("X-USER-ID") Long userId
     ) {
         return paymentService.submit(paymentId, userId);
     }
@@ -66,9 +66,9 @@ public class PaymentController {
 
     paymentService.handleTossSuccess(paymentKey, orderId, amount);
 
-    URI redirect = URI.create(
-            "http://localhost:3000/payments/result?orderId=" + orderId + "&result=success"
-    );
+        URI redirect = URI.create(
+            "http://localhost:5173/payments/success?paymentKey=" + paymentKey + "&orderId=" + orderId + "&amount=" + amount
+        );
 
     return ResponseEntity.status(HttpStatus.FOUND)
             .location(redirect)
@@ -83,9 +83,11 @@ public class PaymentController {
 
     paymentService.handleTossFail(orderId, code, message);
 
-    URI redirect = URI.create(
-            "http://localhost:3000/payments/result?orderId=" + orderId + "&result=fail"
-    );
+        URI redirect = URI.create(
+            "http://localhost:5173/payments/fail?code=" + (code == null ? "PAYMENT_FAILED" : code)
+                + "&message=" + (message == null ? "" : message)
+                + "&orderId=" + orderId
+        );
 
     return ResponseEntity.status(HttpStatus.FOUND)
             .location(redirect)

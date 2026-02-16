@@ -24,6 +24,7 @@ import org.springframework.web.client.RestTemplate;
 
 import com.example.SKALA_Mini_Project_1.modules.bookings.domain.Booking;
 import com.example.SKALA_Mini_Project_1.modules.payments.client.TossConfirmResponse;
+import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingItemRepository;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateRequest;
@@ -47,6 +48,7 @@ public class PaymentService {
     private final RestTemplate restTemplate; // ✅ Bean 주입
     private final com.example.SKALA_Mini_Project_1.modules.payments.client.TossPaymentsClient tossPaymentsClient;
     private final com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository bookingRepository;
+    private final BookingItemRepository bookingItemRepository;
 
     private static final Map<PaymentStatus, Set<PaymentStatus>> transitionMap = new EnumMap<>(PaymentStatus.class);
 
@@ -56,19 +58,24 @@ public class PaymentService {
      */
     // Create
     @Transactional
-    public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
-        if (req.getBookingId() == null) {
-            throw new IllegalArgumentException("bookingId is required");
-        }
+public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
+    if (req.getBookingId() == null) {
+        throw new IllegalArgumentException("bookingId is required");
+    }
+    if (req.getUserId() == null) {
+        throw new IllegalArgumentException("userId is required");
+    }
 
-        // // Booking 관련이 없어서 검증은 일단 주석처리
-        // // 운영 기준: booking 존재 검증
-        // if (!bookingRepository.existsById(req.getBookingId())) {
-        //     throw new EntityNotFoundException("Booking not found: " + req.getBookingId());
-        // }
+    // (권장) 동시성/중복 생성 방지: booking 락 조회로 바꾸면 더 안전
+    Booking booking = bookingRepository.findById(req.getBookingId())
+            .orElseThrow(() -> new EntityNotFoundException("Booking not found: " + req.getBookingId()));
 
-        // ✅ booking_id UNIQUE 대응: 이미 결제가 있으면 새로 만들지 말고 그대로 반환
-        return paymentRepository.findByBookingId(req.getBookingId())
+    if (!req.getUserId().equals(booking.getUserId())) {
+        throw new IllegalArgumentException("booking user mismatch");
+    }
+
+    // ✅ booking_id UNIQUE 대응: 이미 결제가 있으면 새로 만들지 말고 그대로 반환
+    return paymentRepository.findByBookingId(req.getBookingId())
             .map(existing -> new PaymentCreateResponse(
                     existing.getId(),
                     existing.getStatus(),
@@ -78,16 +85,35 @@ public class PaymentService {
             .orElseGet(() -> {
                 OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
+                if (booking.getTotalPrice() == null) {
+                    throw new IllegalStateException("booking totalPrice is required");
+                }
+
+                long amount = booking.getTotalPrice().longValue();
+                if (amount <= 0) {
+                    throw new IllegalStateException("booking amount is zero");
+                }
+
                 Payment payment = new Payment();
                 payment.setBookingId(req.getBookingId());
                 payment.setUserId(req.getUserId());
-                payment.setSeatId(req.getSeatId());
-                payment.setAmount(req.getAmount());
 
+                // seatId는 이제 의미가 애매함(booking이 다좌석 가능)
+                // 최소한으로 유지하려면 대표 1개만 넣되, null이면 안되면 예외 처리
+                Long firstSeatId = bookingItemRepository.findFirstSeatIdByBookingId(req.getBookingId());
+                if (firstSeatId == null) {
+                    throw new IllegalStateException("no seat found for booking");
+                }
+                payment.setSeatId(firstSeatId);
+
+                payment.setAmount(amount);
+
+                // DB ck_payments_status 허용값과 반드시 일치해야 함
                 payment.setStatus(PaymentStatus.PENDING);
+
                 payment.setCreatedAt(now);
                 payment.setUpdatedAt(now);
-                payment.setExpiredAt(now.plusMinutes(5)); // pending 5분
+                payment.setExpiredAt(now.plusMinutes(5));
                 payment.setIdempotencyKey(null);
 
                 Payment saved = paymentRepository.save(payment);
@@ -99,7 +125,8 @@ public class PaymentService {
                         saved.getExpiredAt()
                 );
             });
-    }
+}
+
 
     /**
      * 결제 단건 조회
@@ -125,7 +152,7 @@ public class PaymentService {
     }
 
     @Transactional
-    public PaymentSubmitResponse submit(UUID paymentId, UUID userId) {
+    public PaymentSubmitResponse submit(UUID paymentId, Long userId) {
 
     Payment payment = paymentRepository.findByIdForUpdate(paymentId)
             .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
@@ -160,7 +187,7 @@ public class PaymentService {
 
     return new PaymentSubmitResponse(
             payment.getId(),
-            payment.getStatus().name(),
+            payment.getStatus(),
             payment.getExpiredAt(),
             payment.getIdempotencyKey(),
             payment.getUpdatedAt(),
@@ -169,8 +196,8 @@ public class PaymentService {
             orderId,
             "USER_" + userId,
             payment.getOrderName(),
-            "http://localhost:8081/payments/toss/success",
-            "http://localhost:8081/payments/toss/fail"
+            "http://localhost:5173/payments/success",
+            "http://localhost:5173/payments/fail"
     );
     }
 

@@ -42,8 +42,13 @@ public class SecurityConfig {
             )
             .authorizeHttpRequests(auth -> auth
                 // 결제 관련 API는 인증 없이 접근 허용
+                .requestMatchers("/api/payments/confirm").permitAll()
+                .requestMatchers("/api/payments/toss/webhook").permitAll()
                 .requestMatchers("/api/payments/**").permitAll()
                 .requestMatchers("/api/toss/**").permitAll()
+
+                .requestMatchers("/payments/**").permitAll()
+                .requestMatchers("/toss/**").permitAll()
                 // ✨ Swagger 관련 경로는 모두 허용
                 .requestMatchers(
                     "/swagger-ui/**",
