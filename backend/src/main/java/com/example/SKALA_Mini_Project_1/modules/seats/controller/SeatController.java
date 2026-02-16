@@ -24,6 +24,9 @@ import com.example.SKALA_Mini_Project_1.modules.seats.dto.BatchSeatHoldRequest;
 import com.example.SKALA_Mini_Project_1.modules.seats.dto.SeatSelectRequest;
 import com.example.SKALA_Mini_Project_1.modules.seats.service.SeatReservationService;
 
+
+import org.springframework.data.redis.core.RedisTemplate;
+
 import java.util.Map;
 
 @RestController
@@ -33,6 +36,9 @@ import java.util.Map;
 public class SeatController {
 
     private final SeatReservationService seatReservationService;
+    private final RedisTemplate<String, String> redisTemplate;
+
+    
 
     @PostMapping("/{seatId}/hold")
     @Operation(

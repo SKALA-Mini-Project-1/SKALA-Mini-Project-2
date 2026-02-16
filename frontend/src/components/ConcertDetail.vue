@@ -22,6 +22,46 @@ const sessions = [
   { id: '2', time: '20:00', status: '매진임박', color: 'bg-red-100 text-red-600 animate-pulse' }
 ];
 
+const startBooking = async () => {
+  if (!selectedDate.value || !selectedSession.value) return;
+
+  try {
+    const token = localStorage.getItem("accessToken"); // 로그인 후 저장했다고 가정
+
+    const response = await fetch(
+      "http://localhost:10010/api/ticketing/start?concertId=1",
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      }
+    );
+
+    const data = await response.json();
+
+    if (data.enter) {
+      // 바로 좌석 서버 이동
+      window.location.href =
+        `http://localhost:8081/api/seats/seats?token=${data.entryToken}`;
+    } else {
+      // 대기열 화면으로 이동
+      router.push({
+        name: "QueuePage",
+        query: {
+          concertId: 1,
+          rank: data.rank
+        }
+      });
+    }
+
+  } catch (error) {
+    console.error("예매 시작 실패:", error);
+  }
+};
+
+
+
 const handleDateClick = (day: number, isAvailable: boolean) => {
   if (!isAvailable) {
     return;

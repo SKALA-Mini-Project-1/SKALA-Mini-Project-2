@@ -2,6 +2,7 @@
 import { AlertTriangle, Clock, Info, Loader2 } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
+
 const emit = defineEmits<{
   queueComplete: [];
 }>();
@@ -12,24 +13,38 @@ const isSurge = ref(false);
 let queueTimer: ReturnType<typeof setInterval> | null = null;
 let surgeTimer: ReturnType<typeof setTimeout> | null = null;
 
-onMounted(() => {
-  queueTimer = setInterval(() => {
-    const next = Math.max(0, position.value - Math.floor(Math.random() * 50));
-    position.value = next;
-    progress.value = Math.min(100, progress.value + 0.5);
-    if (next === 0) {
-      if (queueTimer) {
-        clearInterval(queueTimer);
-        queueTimer = null;
-      }
-      setTimeout(() => emit('queueComplete'), 1000);
-    }
-  }, 1000);
 
-  surgeTimer = setTimeout(() => {
-    isSurge.value = true;
-  }, 5000);
+onMounted(() => {
+  queueTimer = setInterval(async () => {
+    try {
+      const token = localStorage.getItem("accessToken");
+
+      // 1️⃣ 내 순위 조회
+      const rankRes = await fetch(
+        `http://localhost:10010/api/ticketing/rank?concertId=${concertId}&userId=1`
+      );
+      const rankData = await rankRes.json();
+
+      position.value = rankData.rank;
+
+      // 2️⃣ 입장 가능 시도
+      const enterRes = await fetch(
+        `http://localhost:10010/api/ticketing/try-enter-seat?concertId=${concertId}&userId=1`,
+        { method: "POST" }
+      );
+
+      if (enterRes.ok) {
+        const enterData = await enterRes.json();
+        window.location.href = enterData.redirectUrl;
+      }
+
+    } catch (err) {
+      console.error("대기열 polling 실패", err);
+    }
+
+  }, 2000);
 });
+
 
 onBeforeUnmount(() => {
   if (queueTimer) {
@@ -45,6 +60,7 @@ const aheadCount = computed(() => Math.max(0, position.value - 1200).toLocaleStr
 </script>
 
 <template>
+  <h1 style="color:red">QUEUE SCREEN</h1>
   <div class="flex min-h-[600px] items-center justify-center bg-gray-50 p-3 sm:p-4">
     <div class="w-full max-w-md overflow-hidden rounded-sm border border-[#e0e0e0] bg-white shadow-xl">
       <div class="p-4 text-center font-bold text-white" :class="isSurge ? 'bg-[#E8000B]' : 'bg-[#333]'">
