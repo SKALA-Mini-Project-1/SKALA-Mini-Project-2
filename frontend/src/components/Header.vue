@@ -25,18 +25,9 @@ const isActive = (path: string) => {
   }
   return props.currentPath.startsWith(path);
 };
-const isActive = (path: string) => {
-  if (path === '/main') {
-    return props.currentPath === '/main';
-  }
-  return props.currentPath.startsWith(path);
-};
 </script>
 
 <template>
-  <header class="sticky top-0 z-50 w-full border-b border-[#d8e2ef] bg-white/95 backdrop-blur">
-    <div class="hidden border-b border-[#dfe7f0] bg-[#f7fafd] py-2 md:block">
-      <div class="mx-auto flex max-w-[1280px] justify-end space-x-4 px-4 text-xs text-[#4f6480]">
   <header class="sticky top-0 z-50 w-full border-b border-[#d8e2ef] bg-white/95 backdrop-blur">
     <div class="hidden border-b border-[#dfe7f0] bg-[#f7fafd] py-2 md:block">
       <div class="mx-auto flex max-w-[1280px] justify-end space-x-4 px-4 text-xs text-[#4f6480]">
@@ -44,25 +35,18 @@ const isActive = (path: string) => {
         <button v-if="!isAuthenticated" class="hover:underline" @click="emit('navigate', '/signup')">회원가입</button>
         <button v-if="isAuthenticated" class="hover:underline" @click="emit('logout')">로그아웃</button>
         <span class="text-[#c8d5e2]">|</span>
-        <span class="text-[#c8d5e2]">|</span>
         <button class="hover:underline">고객센터</button>
-        <span class="text-[#c8d5e2]">|</span>
         <span class="text-[#c8d5e2]">|</span>
         <button class="hover:underline" @click="emit('navigate', '/mypage')">마이페이지</button>
       </div>
     </div>
 
     <div class="mx-auto flex max-w-[1280px] items-center justify-between px-4 py-3 md:h-20 md:py-0">
-    <div class="mx-auto flex max-w-[1280px] items-center justify-between px-4 py-3 md:h-20 md:py-0">
       <div class="flex items-center space-x-3 md:space-x-8">
         <button
           class="flex items-center text-xl font-black tracking-tight text-[#ff7a00] md:text-2xl"
           @click="emit('navigate', '/main')"
-          class="flex items-center text-xl font-black tracking-tight text-[#ff7a00] md:text-2xl"
-          @click="emit('navigate', '/main')"
         >
-          <span class="mr-2">FairLine</span>
-          <span class="rounded bg-[#102a49] px-2 py-1 text-sm text-white md:text-base">Ticket</span>
           <span class="mr-2">FairLine</span>
           <span class="rounded bg-[#102a49] px-2 py-1 text-sm text-white md:text-base">Ticket</span>
         </button>
