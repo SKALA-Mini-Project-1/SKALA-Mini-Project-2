@@ -1,4 +1,5 @@
 /* @import url() FONT IMPORTS MUST ALWAYS BE AT THE VERY TOP OF THIS FILE, ABOVE THE TAILWIND IMPORTS — DO NOT DELETE THIS COMMENT */
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
 
 /* CRITICAL: THE FOLLOWING TAILWIND IMPORTS MUST NEVER BE DELETED OR REORDERED — DO NOT DELETE THIS COMMENT */
 @import 'tailwindcss/base';
@@ -6,3 +7,14 @@
 @import 'tailwindcss/utilities';
 
 /* END TAILWIND IMPORTS — ALL OTHER CSS MUST GO BELOW THIS LINE */
+
+:root {
+  --ticket-text: #173451;
+}
+
+body {
+  margin: 0;
+  color: var(--ticket-text);
+  font-family: 'Manrope', 'Noto Sans KR', sans-serif;
+  background: radial-gradient(circle at 8% 0%, #f7fbff 0%, #edf4fc 35%, #f3f7fc 100%);
+}

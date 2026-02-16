@@ -2,6 +2,12 @@
 import { AlertCircle, ChevronLeft, ChevronRight, Clock, Info } from 'lucide-vue-next';
 import { ref } from 'vue';
 
+const props = defineProps<{
+  posterImage?: string;
+  title?: string;
+  subtitle?: string;
+}>();
+
 const emit = defineEmits<{
   bookingStart: [date: string, session: string];
 }>();
@@ -76,10 +82,16 @@ const handleDateClick = (day: number, isAvailable: boolean) => {
     <div class="flex flex-col gap-6 md:gap-8 lg:flex-row">
       <div class="space-y-6 lg:w-1/3">
         <div class="group relative aspect-[3/4] w-full overflow-hidden rounded-sm bg-gradient-to-br from-gray-800 to-gray-900 shadow-lg">
-          <div class="absolute inset-0 flex items-center justify-center text-4xl font-bold text-white text-opacity-20 md:text-6xl">POSTER</div>
+          <img
+            v-if="props.posterImage"
+            :src="props.posterImage"
+            :alt="props.title || '공연 포스터'"
+            class="h-full w-full object-cover"
+          />
+          <div v-else class="absolute inset-0 flex items-center justify-center text-4xl font-bold text-white text-opacity-20 md:text-6xl">POSTER</div>
           <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 md:p-6">
-            <h2 class="mb-1 text-xl font-bold text-white md:text-2xl">IU 2025 HEREH</h2>
-            <p class="font-medium text-orange-400">WORLD TOUR ENCORE</p>
+            <h2 class="mb-1 text-xl font-bold text-white md:text-2xl">{{ props.title || 'IU 2025 HEREH' }}</h2>
+            <p class="font-medium text-orange-400">{{ props.subtitle || 'WORLD TOUR ENCORE' }}</p>
           </div>
         </div>
 
