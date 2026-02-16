@@ -24,7 +24,7 @@ public class CreateBookingResponse {
     private OffsetDateTime expiresAt;
 
     @Schema(description = "총 결제 금액", example = "560000")
-    private BigDecimal totalPrice;
+    private Long totalPrice;
 
     @Schema(description = "예약된 좌석 ID 목록")
     private List<Long> seatIds;
