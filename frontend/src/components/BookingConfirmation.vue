@@ -1,17 +1,43 @@
 <script setup lang="ts">
-import { Check, Home, QrCode, Smartphone } from 'lucide-vue-next';
-import { computed } from 'vue';
-import type { BookingData } from '../types';
+import { Check, Home, QrCode, Smartphone } from "lucide-vue-next";
+import { computed, onMounted, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import type { BookingData } from "../types";
 
-const props = defineProps<{
-  bookingData: BookingData;
-}>();
+const route = useRoute();
+const router = useRouter();
 
-const emit = defineEmits<{
-  navigate: [path: string];
-}>();
+const bookingData = ref<BookingData | null>(null);
+const errorMessage = ref<string>("");
 
-const totalAmount = computed(() => props.bookingData.seats.reduce((sum, seat) => sum + seat.price, 0));
+const totalAmount = computed(() => {
+  if (!bookingData.value) return 0;
+  return bookingData.value.seats.reduce((sum, seat) => sum + seat.price, 0);
+});
+
+onMounted(async () => {
+  const bookingId = String(route.query.bookingId ?? "");
+  if (!bookingId) {
+    errorMessage.value = "예매 정보를 불러올 수 없습니다. (bookingId 누락)";
+    return;
+  }
+
+  try {
+    // TODO: 백엔드 조회 API로 수정
+    const res = await fetch(`/api/bookings/${bookingId}`, { method: "GET" });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || `booking fetch failed: ${res.status}`);
+    }
+    bookingData.value = await res.json();
+  } catch (e: any) {
+    errorMessage.value = e?.message ?? "예매 정보를 불러오는 중 오류가 발생했습니다.";
+  }
+});
+
+function go(path: string) {
+  router.push(path);
+}
 </script>
 
 <template>
