@@ -1,24 +1,27 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
-import Header from './components/Header.vue';
-import MainPage from './components/MainPage.vue';
-import ConcertListPage from './components/ConcertListPage.vue';
-import ConcertDetail from './components/ConcertDetail.vue';
-import ConcertOpenPage from './components/ConcertOpenPage.vue';
-import QueueScreen from './components/QueueScreen.vue';
-import SeatSelection from './components/SeatSelection.vue';
-import PaymentScreen from './components/PaymentScreen.vue';
-import BookingConfirmation from './components/BookingConfirmation.vue';
-import MyPage from './components/MyPage.vue';
-import ServerError from './components/ServerError.vue';
-import SoldOut from './components/SoldOut.vue';
-import LoginPage from './components/LoginPage.vue';
-import SignupPage from './components/SignupPage.vue';
-import { concerts, getConcertById } from './data/concerts';
-import type { BookingData, Seat } from './types';
-import { apiRequest } from './services/api';
-import { clearAuth, getAuthUser, getToken, isLoggedIn } from './services/auth';
-import { addBookingHistory } from './services/bookingHistory';
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import Header from './components/Header.vue'
+import MainPage from './components/MainPage.vue'
+import ConcertListPage from './components/ConcertListPage.vue'
+import MainPage from './components/MainPage.vue'
+import ConcertListPage from './components/ConcertListPage.vue'
+import ConcertDetail from './components/ConcertDetail.vue'
+import ConcertOpenPage from './components/ConcertOpenPage.vue'
+import QueueScreen from './components/QueueScreen.vue'
+import SeatSelection from './components/SeatSelection.vue'
+import PaymentScreen from './components/PaymentScreen.vue'
+import BookingConfirmation from './components/BookingConfirmation.vue'
+import MyPage from './components/MyPage.vue'
+import ServerError from './components/ServerError.vue'
+import SoldOut from './components/SoldOut.vue'
+import LoginPage from './components/LoginPage.vue'
+import SignupPage from './components/SignupPage.vue'
+import { concerts, getConcertById } from './data/concerts'
+import { concerts, getConcertById } from './data/concerts'
+import type { BookingData, Seat } from './types'
+import { apiRequest } from './services/api'
+import { clearAuth, getAuthUser, getToken, isLoggedIn } from './services/auth'
+import { addBookingHistory } from './services/bookingHistory'
 
 const bookingData = reactive<BookingData>({
   bookingNumber: null,
@@ -27,22 +30,34 @@ const bookingData = reactive<BookingData>({
   concertVenue: null,
   date: null,
   session: null,
-  seats: []
-});
+  seats: [],
+})
 
-const authState = ref(isLoggedIn());
-const currentPath = ref(window.location.pathname || '/main');
-const currentSearch = ref(window.location.search || '');
-const pendingPath = ref<string | null>(null);
+const authState = ref(isLoggedIn())
+const currentPath = ref(window.location.pathname || '/main')
+const currentSearch = ref(window.location.search || '')
+const pendingPath = ref<string | null>(null)
 const pendingBooking = ref<{
-  concertId: string;
-  concertTitle: string;
-  concertVenue: string;
-  date: string;
-  session: string;
-} | null>(null);
+  concertId: string
+  concertTitle: string
+  concertVenue: string
+  date: string
+  session: string
+} | null>(null)
+const currentPath = ref(window.location.pathname || '/main')
+const currentSearch = ref(window.location.search || '')
+const pendingPath = ref<string | null>(null)
+const pendingBooking = ref<{
+  concertId: string
+  concertTitle: string
+  concertVenue: string
+  date: string
+  session: string
+} | null>(null)
 
 const validPaths = new Set([
+  '/main',
+  '/concerts',
   '/main',
   '/concerts',
   '/concert/detail',
@@ -55,117 +70,168 @@ const validPaths = new Set([
   '/login',
   '/signup',
   '/error',
-  '/soldout'
-]);
+  '/soldout',
+])
 
 const protectedPaths = new Set([
   '/mypage',
   '/concert/queue',
   '/concert/seat',
   '/concert/payment',
-  '/concert/confirm'
-]);
+  '/concert/confirm',
+])
+
+const protectedPaths = new Set([
+  '/mypage',
+  '/concert/queue',
+  '/concert/seat',
+  '/concert/payment',
+  '/concert/confirm',
+])
 
 const normalizedPath = computed(() => {
   if (currentPath.value === '/') {
-    return '/main';
+    return '/main'
+    return '/main'
   }
 
   if (validPaths.has(currentPath.value)) {
-    return currentPath.value;
+    return currentPath.value
   }
 
-  return '/main';
-});
+  return '/main'
+})
 
 const selectedConcertId = computed(() => {
-  const params = new URLSearchParams(currentSearch.value);
-  return params.get('concert');
-});
+  const params = new URLSearchParams(currentSearch.value)
+  return params.get('concert')
+  return '/main'
+})
 
-const selectedConcert = computed(() => getConcertById(selectedConcertId.value));
+const selectedConcertId = computed(() => {
+  const params = new URLSearchParams(currentSearch.value)
+  return params.get('concert')
+})
+
+const selectedConcert = computed(() => getConcertById(selectedConcertId.value))
+
+const selectedConcert = computed(() => getConcertById(selectedConcertId.value))
 
 const setPath = (path: string, replace = false) => {
-  const url = new URL(path, window.location.origin);
-  const next = `${url.pathname}${url.search}`;
+  const url = new URL(path, window.location.origin)
+  const next = `${url.pathname}${url.search}`
+
+  const url = new URL(path, window.location.origin)
+  const next = `${url.pathname}${url.search}`
 
   if (replace) {
-    window.history.replaceState({}, '', next);
+    window.history.replaceState({}, '', next)
+    window.history.replaceState({}, '', next)
   } else {
-    window.history.pushState({}, '', next);
+    window.history.pushState({}, '', next)
+    window.history.pushState({}, '', next)
   }
 
-  currentPath.value = url.pathname;
-  currentSearch.value = url.search;
-};
+  currentPath.value = url.pathname
+  currentSearch.value = url.search
+}
 
 const redirectToLogin = (path: string, search = '', replace = false) => {
-  pendingPath.value = `${path}${search}`;
-  setPath('/login', replace);
-};
+  pendingPath.value = `${path}${search}`
+  setPath('/login', replace)
+
+  currentPath.value = url.pathname
+  currentSearch.value = url.search
+}
+
+const redirectToLogin = (path: string, search = '', replace = false) => {
+  pendingPath.value = `${path}${search}`
+  setPath('/login', replace)
+}
 
 const navigate = (path: string) => {
-  const url = new URL(path, window.location.origin);
+  const url = new URL(path, window.location.origin)
 
   if (protectedPaths.has(url.pathname) && !authState.value) {
-    redirectToLogin(url.pathname, url.search);
-    return;
+    redirectToLogin(url.pathname, url.search)
+    return
   }
 
-  setPath(path);
-};
+  const url = new URL(path, window.location.origin)
+
+  if (protectedPaths.has(url.pathname) && !authState.value) {
+    redirectToLogin(url.pathname, url.search)
+    return
+  }
+
+  setPath(path)
+}
 
 const openConcert = (concertId: string) => {
-  navigate(`/concert/detail?concert=${concertId}`);
-};
+  navigate(`/concert/detail?concert=${concertId}`)
+}
+
+const openConcert = (concertId: string) => {
+  navigate(`/concert/detail?concert=${concertId}`)
+}
 
 const handlePopState = () => {
-  const path = window.location.pathname || '/main';
-  const search = window.location.search || '';
+  const path = window.location.pathname || '/main'
+  const search = window.location.search || ''
 
   if (protectedPaths.has(path) && !authState.value) {
-    redirectToLogin(path, search, true);
-    return;
+    redirectToLogin(path, search, true)
+    return
   }
 
-  currentPath.value = path;
-  currentSearch.value = search;
-};
+  currentPath.value = path
+  currentSearch.value = search
+  const path = window.location.pathname || '/main'
+  const search = window.location.search || ''
+
+  if (protectedPaths.has(path) && !authState.value) {
+    redirectToLogin(path, search, true)
+    return
+  }
+
+  currentPath.value = path
+  currentSearch.value = search
+}
 
 const handleBookingStart = (date: string, session: string) => {
-  const concertId = selectedConcert.value.id;
-  const concertTitle = `${selectedConcert.value.title} ${selectedConcert.value.subtitle}`;
-  const concertVenue = selectedConcert.value.venue;
+  const concertId = selectedConcert.value.id
+  const concertTitle = `${selectedConcert.value.title} ${selectedConcert.value.subtitle}`
+  const concertVenue = selectedConcert.value.venue
 
   if (!authState.value) {
-    pendingBooking.value = { concertId, concertTitle, concertVenue, date, session };
-    redirectToLogin('/concert/detail', `?concert=${concertId}`);
-    return;
+    pendingBooking.value = { concertId, concertTitle, concertVenue, date, session }
+    redirectToLogin('/concert/detail', `?concert=${concertId}`)
+    return
   }
 
-  bookingData.concertId = selectedConcert.value.id;
-  bookingData.bookingNumber = null;
-  bookingData.concertTitle = concertTitle;
-  bookingData.concertVenue = concertVenue;
-  bookingData.date = date;
-  bookingData.session = session;
-  bookingData.seats = [];
-  navigate('/concert/queue');
-};
+  bookingData.concertId = selectedConcert.value.id
+  bookingData.bookingNumber = null
+  bookingData.concertTitle = concertTitle
+  bookingData.concertVenue = concertVenue
+  bookingData.date = date
+  bookingData.session = session
+  bookingData.seats = []
+  navigate('/concert/queue')
+}
 
 const handleQueueComplete = () => {
-  navigate('/concert/seat');
-};
+  navigate('/concert/seat')
+}
 
 const handleSeatComplete = (seats: Seat[]) => {
-  bookingData.seats = seats;
-  navigate('/concert/payment');
-};
+  bookingData.seats = seats
+  navigate('/concert/payment')
+}
 
 const handlePaymentComplete = () => {
-  const user = getAuthUser();
-  const bookingNumber = `T${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(10000 + Math.random() * 90000)}`;
-  bookingData.bookingNumber = bookingNumber;
+  const user = getAuthUser()
+  const bookingNumber = `T${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(10000 + Math.random() * 90000)}`
+  bookingData.bookingNumber = bookingNumber
 
   if (user && bookingData.date && bookingData.session) {
     addBookingHistory({
@@ -176,92 +242,97 @@ const handlePaymentComplete = () => {
       date: bookingData.date,
       session: bookingData.session,
       seatLabels: bookingData.seats.map(
-        (seat) => `${seat.grade} ${seat.section}구역 ${seat.row}열 ${seat.col}번`
+        (seat) => `${seat.grade} ${seat.section}구역 ${seat.row}열 ${seat.col}번`,
       ),
       totalAmount: bookingData.seats.reduce((sum, seat) => sum + seat.price, 0),
       status: 'booked',
-      createdAt: new Date().toISOString()
-    });
+      createdAt: new Date().toISOString(),
+    })
   }
 
-  navigate('/concert/confirm');
-};
+  navigate('/concert/confirm')
+}
 
 const handleLogout = async () => {
   try {
-    const token = getToken();
+    const token = getToken()
     if (token) {
       await apiRequest<{ message: string; status: string }>('/api/users/logout', {
         method: 'POST',
-        token
-      });
+        token,
+      })
     }
   } catch {
     // 서버 로그아웃 실패여도 클라이언트 세션은 제거
   } finally {
-    clearAuth();
-    authState.value = false;
+    clearAuth()
+    authState.value = false
     if (protectedPaths.has(normalizedPath.value)) {
-      navigate('/login');
+      navigate('/login')
     }
   }
-};
+}
 
 const handleLoggedIn = () => {
-  authState.value = true;
+  authState.value = true
 
   if (pendingBooking.value) {
-    bookingData.concertId = pendingBooking.value.concertId;
-    bookingData.concertTitle = pendingBooking.value.concertTitle;
-    bookingData.concertVenue = pendingBooking.value.concertVenue;
-    bookingData.date = pendingBooking.value.date;
-    bookingData.session = pendingBooking.value.session;
-    pendingBooking.value = null;
-    pendingPath.value = null;
-    navigate('/concert/queue');
-    return;
+    bookingData.concertId = pendingBooking.value.concertId
+    bookingData.concertTitle = pendingBooking.value.concertTitle
+    bookingData.concertVenue = pendingBooking.value.concertVenue
+    bookingData.date = pendingBooking.value.date
+    bookingData.session = pendingBooking.value.session
+    pendingBooking.value = null
+    pendingPath.value = null
+    navigate('/concert/queue')
+    return
   }
 
   if (pendingPath.value) {
-    const targetPath = pendingPath.value;
-    pendingPath.value = null;
-    navigate(targetPath);
-    return;
+    const targetPath = pendingPath.value
+    pendingPath.value = null
+    navigate(targetPath)
+    return
   }
 
-  navigate('/mypage');
-};
+  navigate('/mypage')
+}
 
 const handleLoggedOut = () => {
-  authState.value = false;
-};
+  authState.value = false
+}
 
 onMounted(() => {
-  const path = window.location.pathname || '/main';
+  const path = window.location.pathname || '/main'
   if (!validPaths.has(path) && path !== '/') {
-    setPath('/main', true);
+    setPath('/main', true)
   }
   if (path === '/') {
-    setPath('/main', true);
+    setPath('/main', true)
   }
 
-  const current = window.location.pathname || '/main';
-  const search = window.location.search || '';
+  const current = window.location.pathname || '/main'
+  const search = window.location.search || ''
   if (protectedPaths.has(current) && !authState.value) {
-    redirectToLogin(current, search, true);
+    redirectToLogin(current, search, true)
   }
 
-  window.addEventListener('popstate', handlePopState);
-});
+  window.addEventListener('popstate', handlePopState)
+})
 
 onUnmounted(() => {
-  window.removeEventListener('popstate', handlePopState);
-});
+  window.removeEventListener('popstate', handlePopState)
+})
 </script>
 
 <template>
   <div class="min-h-screen bg-[#f3f7fc] text-[#1d3a5b]">
-    <Header :current-path="normalizedPath" :is-authenticated="authState" @navigate="navigate" @logout="handleLogout" />
+    <Header
+      :current-path="normalizedPath"
+      :is-authenticated="authState"
+      @navigate="navigate"
+      @logout="handleLogout"
+    />
 
     <main>
       <MainPage
@@ -280,10 +351,7 @@ onUnmounted(() => {
         @navigate="navigate"
         @logged-in="handleLoggedIn"
       />
-      <SignupPage
-        v-else-if="normalizedPath === '/signup'"
-        @navigate="navigate"
-      />
+      <SignupPage v-else-if="normalizedPath === '/signup'" @navigate="navigate" />
       <MyPage
         v-else-if="normalizedPath === '/mypage'"
         @navigate="navigate"
@@ -300,8 +368,14 @@ onUnmounted(() => {
         v-else-if="normalizedPath === '/concert/open'"
         @booking-start="handleBookingStart"
       />
-      <QueueScreen v-else-if="normalizedPath === '/concert/queue'" @queue-complete="handleQueueComplete" />
-      <SeatSelection v-else-if="normalizedPath === '/concert/seat'" @complete="handleSeatComplete" />
+      <QueueScreen
+        v-else-if="normalizedPath === '/concert/queue'"
+        @queue-complete="handleQueueComplete"
+      />
+      <SeatSelection
+        v-else-if="normalizedPath === '/concert/seat'"
+        @complete="handleSeatComplete"
+      />
       <PaymentScreen
         v-else-if="normalizedPath === '/concert/payment'"
         :booking-data="bookingData"
@@ -314,12 +388,7 @@ onUnmounted(() => {
       />
       <ServerError v-else-if="normalizedPath === '/error'" @retry="navigate('/main')" />
       <SoldOut v-else-if="normalizedPath === '/soldout'" @back="navigate('/main')" />
-      <MainPage
-        v-else
-        :concerts="concerts"
-        @open-concert="openConcert"
-        @navigate="navigate"
-      />
+      <MainPage v-else :concerts="concerts" @open-concert="openConcert" @navigate="navigate" />
     </main>
 
     <footer class="mt-10 border-t border-[#d8e2ee] bg-[#0f2641] py-8 text-[#c5d4e5] md:mt-12">

@@ -1,4 +1,4 @@
-import type { ConcertItem } from '../types';
+import type { ConcertItem } from '../types'
 
 export const concerts: ConcertItem[] = [
   {
@@ -23,12 +23,12 @@ export const concerts: ConcertItem[] = [
     availableDates: [
       { day: 21, weekday: '토', isoDate: '2026-03-21', isAvailable: true },
       { day: 22, weekday: '일', isoDate: '2026-03-22', isAvailable: true, isSoldOut: true },
-      { day: 28, weekday: '토', isoDate: '2026-03-28', isAvailable: true }
+      { day: 28, weekday: '토', isoDate: '2026-03-28', isAvailable: true },
     ],
     sessions: [
       { id: '1', time: '17:00', status: '매진임박' },
-      { id: '2', time: '20:00', status: '보통' }
-    ]
+      { id: '2', time: '20:00', status: '보통' },
+    ],
   },
   {
     id: 'day6-finale-2026',
@@ -51,12 +51,12 @@ export const concerts: ConcertItem[] = [
     ranking: 2,
     availableDates: [
       { day: 4, weekday: '토', isoDate: '2026-04-04', isAvailable: true },
-      { day: 5, weekday: '일', isoDate: '2026-04-05', isAvailable: true }
+      { day: 5, weekday: '일', isoDate: '2026-04-05', isAvailable: true },
     ],
     sessions: [
       { id: '1', time: '18:00', status: '보통' },
-      { id: '2', time: '20:30', status: '여유' }
-    ]
+      { id: '2', time: '20:30', status: '여유' },
+    ],
   },
   {
     id: 'jazz-night-2026',
@@ -79,18 +79,18 @@ export const concerts: ConcertItem[] = [
     ranking: 3,
     availableDates: [
       { day: 9, weekday: '토', isoDate: '2026-05-09', isAvailable: true },
-      { day: 10, weekday: '일', isoDate: '2026-05-10', isAvailable: true }
+      { day: 10, weekday: '일', isoDate: '2026-05-10', isAvailable: true },
     ],
     sessions: [
       { id: '1', time: '16:00', status: '여유' },
-      { id: '2', time: '19:30', status: '보통' }
-    ]
+      { id: '2', time: '19:30', status: '보통' },
+    ],
   },
   {
     id: 'hiphop-ground-2026',
     title: 'HIPHOP GROUND',
     subtitle: 'SEOUL OPEN AIR',
-    artist: 'ZICO, DPR, BE\'O 외',
+    artist: "ZICO, DPR, BE'O 외",
     venue: '잠실종합운동장',
     period: '2026.06.13',
     genre: '힙합/페스티벌',
@@ -106,8 +106,9 @@ export const concerts: ConcertItem[] = [
     minPrice: 99000,
     ranking: 4,
     availableDates: [{ day: 13, weekday: '토', isoDate: '2026-06-13', isAvailable: true }],
-    sessions: [{ id: '1', time: '17:30', status: '보통' }]
-  }
-];
+    sessions: [{ id: '1', time: '17:30', status: '보통' }],
+  },
+]
 
-export const getConcertById = (id: string | null) => concerts.find((concert) => concert.id === id) ?? concerts[0];
+export const getConcertById = (id: string | null) =>
+  concerts.find((concert) => concert.id === id) ?? concerts[0]
