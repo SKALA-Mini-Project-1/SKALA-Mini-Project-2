@@ -2,8 +2,10 @@ package com.example.SKALA_Mini_Project_1.modules.payments.controller;
 
 import java.net.URI;
 import java.util.UUID;
+import java.math.BigDecimal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.RequestBody;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -30,7 +32,7 @@ public class PaymentController {
 
 
     @PostMapping("/create")
-    public ResponseEntity<PaymentCreateResponse> create(@RequestBody PaymentCreateRequest req) {
+    public ResponseEntity<PaymentCreateResponse> create(@Valid @RequestBody PaymentCreateRequest req) {
         return ResponseEntity.ok(paymentService.createPayment(req));
     }
 
@@ -53,7 +55,7 @@ public class PaymentController {
     public ResponseEntity<Void> tossSuccess(
         @RequestParam String paymentKey,
         @RequestParam String orderId,
-        @RequestParam Long amount) {
+        @RequestParam BigDecimal amount) {
 
     paymentService.handleTossSuccess(paymentKey, orderId, amount);
 
