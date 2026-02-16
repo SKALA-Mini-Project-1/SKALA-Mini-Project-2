@@ -11,6 +11,16 @@ import com.example.SKALA_Mini_Project_1.modules.seats.domain.Seat;
 
 @Repository
 public interface SeatRepository extends JpaRepository<Seat, Long> {
+
+        // 결제 시, 해당 예약에 포함된 좌석들의 가격 합계를 조회하는 메서드 (결제 금액 계산용)
+        @Query("""
+        select coalesce(sum(s.price), 0)
+        from Seat s
+        where s.holdBookingId = :bookingId
+          and s.status = 'HOLD'
+        """)
+        long sumHeldSeatPrice(@Param("bookingId") UUID bookingId);
+
     // 좌석 예매 시, 콘서트별 본인이 예매한 좌석 조회용 메서드
     @Query(
             value = """

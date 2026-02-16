@@ -2,6 +2,7 @@
 import { ANONYMOUS, loadTossPayments } from '@tosspayments/tosspayments-sdk';
 import { Loader2 } from 'lucide-vue-next';
 import { computed, reactive, ref } from 'vue';
+import { createPayment, submitPayment } from '../data/payments';
 import { getAuthUser } from '../services/auth';
 import type { BookingData } from '../types';
 
@@ -17,6 +18,9 @@ const agreements = reactive({
   privacy: false,
   refund: false
 });
+const manualBookingId = ref('');
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 const totalAmount = computed(() => props.bookingData.seats.reduce((sum, seat) => sum + seat.price, 0));
 
@@ -52,16 +56,33 @@ const handlePayment = async () => {
 
     const tossPayments = await loadTossPayments(clientKey);
     const authUser = getAuthUser();
-    const amount = totalAmount.value;
-    const orderId = `ORDER_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-    const orderName = props.bookingData.concertTitle
-      ? `${props.bookingData.concertTitle} 티켓`
-      : '공연 티켓';
-    const customerName = authUser?.name ?? '고객';
-    const successUrl = `${window.location.origin}/payments/success`;
-    const failUrl = `${window.location.origin}/payments/fail`;
+    if (!authUser?.userId) {
+      alert('로그인이 필요합니다. 다시 로그인 후 시도해주세요.');
+      return;
+    }
 
-    const customerKey = authUser?.userId ? `USER_${authUser.userId}` : ANONYMOUS;
+    const manualId = manualBookingId.value.trim();
+    const bookingId = manualId || props.bookingData.bookingId || null;
+    if (!bookingId) {
+      alert('예매 정보가 없습니다. 다시 좌석 선택 후 시도해주세요.');
+      return;
+    }
+    if (!isUuid(bookingId)) {
+      alert('bookingId는 UUID 형식이어야 합니다.');
+      return;
+    }
+
+    const created = await createPayment({ bookingId, userId: authUser.userId });
+    const submitted = await submitPayment(created.paymentId, authUser.userId);
+
+    const amount = submitted.amount;
+    const orderId = submitted.orderId;
+    const orderName = submitted.orderName || (props.bookingData.concertTitle ? `${props.bookingData.concertTitle} 티켓` : '공연 티켓');
+    const customerName = authUser.name ?? '고객';
+    const successUrl = submitted.successUrl || `${window.location.origin}/payments/success`;
+    const failUrl = submitted.failUrl || `${window.location.origin}/payments/fail`;
+
+    const customerKey = submitted.customerKey ?? `USER_${authUser.userId}` ?? ANONYMOUS;
     const payment = tossPayments.payment({ customerKey });
 
     if (paymentMethod.value === 'vbank') {
@@ -119,6 +140,17 @@ const handlePayment = async () => {
         <section>
           <h3 class="mb-3 flex items-center text-lg font-bold text-[#333]"><span class="mr-2 h-4 w-1 bg-[#FF6B00]"></span>예매자 정보</h3>
           <div class="border-t border-[#333]">
+            <div class="flex flex-col border-b border-[#e0e0e0] sm:flex-row">
+              <div class="flex w-full items-center bg-[#f9f9f9] p-3 text-sm font-medium text-[#666] sm:w-32">예약 ID</div>
+              <div class="flex-1 p-3">
+                <input
+                  v-model="manualBookingId"
+                  type="text"
+                  class="w-full border border-[#ddd] px-3 py-2 text-sm sm:max-w-xs"
+                  placeholder="bookingId 입력"
+                />
+              </div>
+            </div>
             <div class="flex flex-col border-b border-[#e0e0e0] sm:flex-row"><div class="flex w-full items-center bg-[#f9f9f9] p-3 text-sm font-medium text-[#666] sm:w-32">이름</div><div class="flex-1 p-3"><input type="text" class="w-full border border-[#ddd] px-3 py-2 text-sm sm:max-w-xs" placeholder="홍길동" /></div></div>
             <div class="flex flex-col border-b border-[#e0e0e0] sm:flex-row"><div class="flex w-full items-center bg-[#f9f9f9] p-3 text-sm font-medium text-[#666] sm:w-32">연락처</div><div class="flex flex-1 flex-col gap-2 p-3 sm:flex-row sm:items-center sm:space-x-2 sm:gap-0"><input type="text" class="w-full border border-[#ddd] px-3 py-2 text-sm sm:max-w-xs" placeholder="010-0000-0000" /><button class="rounded-sm bg-[#666] px-3 py-2 text-xs text-white hover:bg-[#555]">인증요청</button></div></div>
             <div class="flex flex-col border-b border-[#e0e0e0] sm:flex-row"><div class="flex w-full items-center bg-[#f9f9f9] p-3 text-sm font-medium text-[#666] sm:w-32">이메일</div><div class="flex-1 p-3"><input type="email" class="w-full border border-[#ddd] px-3 py-2 text-sm sm:max-w-xs" placeholder="example@email.com" /></div></div>

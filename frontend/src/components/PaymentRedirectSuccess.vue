@@ -15,7 +15,7 @@ const getPaymentsBase = () => {
     (import.meta.env.VITE_BACKEND_BASE_URL as string | undefined) ??
     "";
   const trimmed = apiBase.replace(/\/$/, "");
-  return trimmed ? `${trimmed}/payments` : "/api/payments";
+  return trimmed ? `${trimmed}/api/payments` : "/api/payments";
 };
 
 async function confirmPayment(paymentKey: string, orderId: string, amount: number) {

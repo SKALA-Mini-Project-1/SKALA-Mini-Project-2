@@ -17,10 +17,4 @@ public class PaymentCreateRequest {
     @NotNull
     private Long userId;
 
-    @NotNull
-    private Long seatId;
-
-    @NotNull
-    private Long amount;
-
 }
