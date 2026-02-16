@@ -1,55 +1,70 @@
-package com.example.SKALA_Mini_Project_1.domain.Waiting.service;
+package com.example.SKALA_Mini_Project_1.modules.waiting.service;
 
+import com.example.SKALA_Mini_Project_1.modules.users.User;
+import com.example.SKALA_Mini_Project_1.modules.users.UserRepository;
+// import com.example.SKALA_Mini_Project_1.modules.seats.domain.Concert;
+// import com.example.SKALA_Mini_Project_1.modules.seats.repository.ConcertRepository;
+import com.example.SKALA_Mini_Project_1.modules.waiting.dto.TicketingStartResponse;
+
+import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
-import com.example.SKALA_Mini_Project_1.global.jwt.JwtUtil;
-
-import java.util.concurrent.ThreadLocalRandom;
 import java.time.Duration;
-
-
-
-import lombok.RequiredArgsConstructor;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 @RequiredArgsConstructor
 public class QueueService {
 
     private final RedisTemplate<String, String> redisTemplate;
+    private final UserRepository userRepository;
 
-    private static final int MAX_WEIGHT_MILLIS = 5000;
+    // 🔥 나중에 팬점수 계산용
+    // private final ConcertRepository concertRepository;
 
-    public String tryEnterSeat(Long concertId, String userId) {
+    private static final long MAX_SEAT_CAPACITY = 500; // 좌석 서버 최대 수용 인원
+    private static final int MAX_WEIGHT_MILLIS = 5000; // 팬점수 최대 보정치
 
-        String queueKey = getQueueKey(concertId);
-        String enterKey = getEnterKey(concertId);
+    /**
+     * 🎯 예매하기 버튼 클릭 시 호출되는 메인 메서드
+     */
+    public TicketingStartResponse startTicketing(Long concertId, Long userId) {
 
-        Long rank = redisTemplate.opsForZSet().rank(queueKey, userId);
-        String allowedStr = redisTemplate.opsForValue().get(enterKey);
+        // 1️⃣ 로그인 사용자 존재 확인
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("사용자 없음"));
 
-        if (rank == null || allowedStr == null) return null;
+        // 2️⃣ (현재는 팬점수 미적용)
+        long weightMillis = 0;
 
-        long allowed = Long.parseLong(allowedStr);
+        /*
+        // 🔥 팬점수 로직 (나중에 활성화)
+        Concert concert = concertRepository.findById(concertId)
+                .orElseThrow(() -> new IllegalArgumentException("콘서트 없음"));
 
-        if (rank >= allowed) return null;
+        weightMillis = calculateFanWeight(user, concert);
+        */
 
-        // 대기열 제거
-        redisTemplate.opsForZSet().remove(queueKey, userId);
+        // 3️⃣ Redis 대기열 진입
+        long rank = enterQueue(concertId, String.valueOf(userId), weightMillis);
 
-        // 랜덤 EntryToken 생성
-        String entryToken = java.util.UUID.randomUUID().toString();
+        // 4️⃣ 좌석 서버 수용 가능 여부 확인
+        if (canEnter(concertId, String.valueOf(userId))) {
 
-        // 20초 유효 1회용 토큰 저장
-        redisTemplate.opsForValue()
-                .set("seat:entry:" + entryToken,
-                        userId,
-                        java.time.Duration.ofSeconds(180));
+            String entryToken = issueEntryToken(userId);
 
-        return entryToken;
+            return TicketingStartResponse.enter(entryToken);
+        }
+
+        return TicketingStartResponse.waiting(rank);
     }
 
-    public long enterQueue(Long concertId, String userId, long fandomWeightMillis) {
+    /**
+     * 🔥 Redis ZSET 대기열 진입
+     */
+    private long enterQueue(Long concertId, String userId, long fandomWeightMillis) {
 
         String key = getQueueKey(concertId);
 
@@ -66,17 +81,67 @@ public class QueueService {
         return rank != null ? rank : -1;
     }
 
-    public long getRank(Long concertId, String userId) {
-        String key = getQueueKey(concertId);
-        Long rank = redisTemplate.opsForZSet().rank(key, userId);
-        return rank != null ? rank : -1;
+    /**
+     * 🔥 좌석 서버 수용 인원 기반 입장 판단
+     */
+    private boolean canEnter(Long concertId, String userId) {
+
+        String queueKey = getQueueKey(concertId);
+        String activeKey = "seat:active:concert:" + concertId;
+
+        Long rank = redisTemplate.opsForZSet().rank(queueKey, userId);
+        if (rank == null) return false;
+
+        String activeStr = redisTemplate.opsForValue().get(activeKey);
+        long active = activeStr == null ? 0 : Long.parseLong(activeStr);
+
+        long available = MAX_SEAT_CAPACITY - active;
+
+        if (available <= 0) return false;
+
+        if (rank < available) {
+            redisTemplate.opsForZSet().remove(queueKey, userId);
+            redisTemplate.opsForValue().increment(activeKey);
+            return true;
+        }
+
+        return false;
     }
+
+    /**
+     * 🔥 1회용 좌석 진입 토큰 발급
+     */
+    private String issueEntryToken(Long userId) {
+
+        String entryToken = UUID.randomUUID().toString();
+
+        redisTemplate.opsForValue().set(
+                "seat:entry:" + entryToken,
+                String.valueOf(userId),
+                Duration.ofSeconds(180) // 3분 유효
+        );
+
+        return entryToken;
+    }
+
+    /**
+     * 🔥 팬점수 계산 (현재 주석)
+     */
+    /*
+    private long calculateFanWeight(User user, Concert concert) {
+
+        if (user.getArtistId() == null) return 0;
+
+        if (!user.getArtistId().equals(concert.getArtistId()))
+            return 0;
+
+        int fanScore = user.getFanScore() == null ? 0 : user.getFanScore();
+
+        return Math.min(fanScore * 100L, MAX_WEIGHT_MILLIS);
+    }
+    */
 
     private String getQueueKey(Long concertId) {
         return "queue:concert:" + concertId;
-    }
-
-    private String getEnterKey(Long concertId) {
-        return "queue:concert:" + concertId + ":enter";
     }
 }

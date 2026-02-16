@@ -46,7 +46,6 @@ const submit = async () => {
     });
 
     emit('loggedIn');
-    emit('navigate', '/mypage');
   } catch (error) {
     errorMessage.value = error instanceof ApiError ? error.message : '로그인 중 오류가 발생했습니다.';
   } finally {
