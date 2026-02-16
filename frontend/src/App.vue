@@ -4,6 +4,7 @@ import Header from './components/Header.vue';
 import MainPage from './components/MainPage.vue';
 import ConcertListPage from './components/ConcertListPage.vue';
 import ConcertDetail from './components/ConcertDetail.vue';
+import ConcertOpenPage from './components/ConcertOpenPage.vue';
 import QueueScreen from './components/QueueScreen.vue';
 import SeatSelection from './components/SeatSelection.vue';
 import PaymentScreen from './components/PaymentScreen.vue';
@@ -16,9 +17,11 @@ import SignupPage from './components/SignupPage.vue';
 import { concerts, getConcertById } from './data/concerts';
 import type { BookingData, Seat } from './types';
 import { apiRequest } from './services/api';
-import { clearAuth, getToken, isLoggedIn } from './services/auth';
+import { clearAuth, getAuthUser, getToken, isLoggedIn } from './services/auth';
+import { addBookingHistory } from './services/bookingHistory';
 
 const bookingData = reactive<BookingData>({
+  bookingNumber: null,
   concertId: null,
   concertTitle: null,
   concertVenue: null,
@@ -43,6 +46,7 @@ const validPaths = new Set([
   '/main',
   '/concerts',
   '/concert/detail',
+  '/concert/open',
   '/concert/queue',
   '/concert/seat',
   '/concert/payment',
@@ -140,10 +144,12 @@ const handleBookingStart = (date: string, session: string) => {
   }
 
   bookingData.concertId = selectedConcert.value.id;
+  bookingData.bookingNumber = null;
   bookingData.concertTitle = concertTitle;
   bookingData.concertVenue = concertVenue;
   bookingData.date = date;
   bookingData.session = session;
+  bookingData.seats = [];
   navigate('/concert/queue');
 };
 
@@ -157,6 +163,27 @@ const handleSeatComplete = (seats: Seat[]) => {
 };
 
 const handlePaymentComplete = () => {
+  const user = getAuthUser();
+  const bookingNumber = `T${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(10000 + Math.random() * 90000)}`;
+  bookingData.bookingNumber = bookingNumber;
+
+  if (user && bookingData.date && bookingData.session) {
+    addBookingHistory({
+      bookingNumber,
+      userId: user.userId,
+      concertTitle: bookingData.concertTitle || '선택한 공연',
+      concertVenue: bookingData.concertVenue || '-',
+      date: bookingData.date,
+      session: bookingData.session,
+      seatLabels: bookingData.seats.map(
+        (seat) => `${seat.grade} ${seat.section}구역 ${seat.row}열 ${seat.col}번`
+      ),
+      totalAmount: bookingData.seats.reduce((sum, seat) => sum + seat.price, 0),
+      status: 'booked',
+      createdAt: new Date().toISOString()
+    });
+  }
+
   navigate('/concert/confirm');
 };
 
@@ -264,6 +291,13 @@ onUnmounted(() => {
       />
       <ConcertDetail
         v-else-if="normalizedPath === '/concert/detail'"
+        :poster-image="selectedConcert.heroImage"
+        :title="selectedConcert.title"
+        :subtitle="selectedConcert.subtitle"
+        @booking-start="handleBookingStart"
+      />
+      <ConcertOpenPage
+        v-else-if="normalizedPath === '/concert/open'"
         @booking-start="handleBookingStart"
       />
       <QueueScreen v-else-if="normalizedPath === '/concert/queue'" @queue-complete="handleQueueComplete" />

@@ -52,10 +52,24 @@ export interface Seat {
 }
 
 export interface BookingData {
+  bookingNumber: string | null;
   concertId: string | null;
   concertTitle: string | null;
   concertVenue: string | null;
   date: string | null;
   session: string | null;
   seats: Seat[];
+}
+
+export interface BookingHistoryRecord {
+  bookingNumber: string;
+  userId: number;
+  concertTitle: string;
+  concertVenue: string;
+  date: string;
+  session: string;
+  seatLabels: string[];
+  totalAmount: number;
+  status: 'booked' | 'canceled';
+  createdAt: string;
 }

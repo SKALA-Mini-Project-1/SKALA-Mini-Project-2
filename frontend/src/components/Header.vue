@@ -15,6 +15,7 @@ const navItems: Array<{ path: string; label: string }> = [
   { path: '/main', label: '메인' },
   { path: '/concerts', label: '콘서트' },
   { path: '/concert/detail', label: '상세' },
+  { path: '/concert/open', label: '오픈대기' },
   { path: '/mypage', label: '마이페이지' }
 ];
 

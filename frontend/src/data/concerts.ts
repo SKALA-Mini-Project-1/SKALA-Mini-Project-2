@@ -101,7 +101,7 @@ export const concerts: ConcertItem[] = [
     thumbnailImage:
       'https://images.unsplash.com/photo-1565031491910-e57fac031c41?auto=format&fit=crop&w=600&q=80',
     teaserImage:
-      'https://images.unsplash.com/photo-1571266028243-d220c9e4b5d7?auto=format&fit=crop&w=900&q=80',
+      'https://images.unsplash.com/photo-1565031491910-e57fac031c41?auto=format&fit=crop&w=900&q=80',
     tags: ['오늘오픈', '스탠딩'],
     minPrice: 99000,
     ranking: 4,

@@ -31,7 +31,7 @@ const totalAmount = computed(() => props.bookingData.seats.reduce((sum, seat) =>
     <div class="mb-8 overflow-hidden rounded-sm border border-[#e0e0e0] bg-white shadow-sm">
       <div class="flex flex-col items-start gap-1 border-b border-[#e0e0e0] bg-[#f8f8f8] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
         <span class="font-bold text-[#333]">예매정보</span>
-        <span class="text-xs text-[#666] sm:text-sm">예매번호: <span class="ml-1 text-base font-bold text-[#FF6B00] sm:text-lg">T2025-0612-15847</span></span>
+        <span class="text-xs text-[#666] sm:text-sm">예매번호: <span class="ml-1 text-base font-bold text-[#FF6B00] sm:text-lg">{{ bookingData.bookingNumber || '-' }}</span></span>
       </div>
 
       <div class="p-4 sm:p-6">
