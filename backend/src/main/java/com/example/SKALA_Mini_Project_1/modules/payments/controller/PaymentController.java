@@ -52,6 +52,11 @@ public class PaymentController {
         return paymentService.submit(paymentId, userId);
     }
 
+    @PostMapping("/confirm")
+    public PaymentConfirmResponse confirm(@RequestBody PaymentConfirmRequest request) {
+        return paymentService.confirm(request);
+    }
+
 
     @GetMapping("/toss/success")
     public ResponseEntity<Void> tossSuccess(

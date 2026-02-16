@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { Check, Home, QrCode, Smartphone } from "lucide-vue-next";
 import { computed, onMounted, ref } from "vue";
-import { useRoute, useRouter } from "vue-router";
 import type { BookingData } from "../types";
 
-const route = useRoute();
-const router = useRouter();
+const emit = defineEmits<{
+  navigate: [path: string];
+}>();
 
-const bookingData = ref<BookingData | null>(null);
+const props = defineProps<{
+  bookingData?: BookingData | null;
+}>();
+
+const bookingData = ref<BookingData | null>(props.bookingData ?? null);
 const errorMessage = ref<string>("");
 
 const totalAmount = computed(() => {
@@ -16,14 +20,18 @@ const totalAmount = computed(() => {
 });
 
 onMounted(async () => {
-  const bookingId = String(route.query.bookingId ?? "");
+  if (bookingData.value) {
+    return;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const bookingId = params.get("bookingId") ?? "";
   if (!bookingId) {
     errorMessage.value = "예매 정보를 불러올 수 없습니다. (bookingId 누락)";
     return;
   }
 
   try {
-    // TODO: 백엔드 조회 API로 수정
     const res = await fetch(`/api/bookings/${bookingId}`, { method: "GET" });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
@@ -34,14 +42,13 @@ onMounted(async () => {
     errorMessage.value = e?.message ?? "예매 정보를 불러오는 중 오류가 발생했습니다.";
   }
 });
-
-function go(path: string) {
-  router.push(path);
-}
 </script>
 
 <template>
   <div class="mx-auto max-w-[800px] p-3 sm:p-4 md:p-8">
+    <div v-if="errorMessage" class="mb-6 rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-600">
+      {{ errorMessage }}
+    </div>
     <div class="mb-8 text-center md:mb-12">
       <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#FF6B00] shadow-lg md:mb-6 md:h-20 md:w-20">
         <Check :size="40" class="text-white" />

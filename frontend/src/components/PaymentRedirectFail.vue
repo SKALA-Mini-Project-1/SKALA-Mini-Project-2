@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { useRoute, useRouter } from "vue-router";
 
-const route = useRoute();
-const router = useRouter();
+const emit = defineEmits<{
+  navigate: [path: string];
+}>();
 
-const code = computed(() => String(route.query.code ?? "PAYMENT_FAILED"));
-const message = computed(() => String(route.query.message ?? "결제가 실패했습니다."));
-const orderId = computed(() => String(route.query.orderId ?? ""));
+const params = new URLSearchParams(window.location.search);
+const code = computed(() => String(params.get("code") ?? "PAYMENT_FAILED"));
+const message = computed(() => String(params.get("message") ?? "결제가 실패했습니다."));
+const orderId = computed(() => String(params.get("orderId") ?? ""));
 </script>
 
 <template>
@@ -21,8 +22,8 @@ const orderId = computed(() => String(route.query.orderId ?? ""));
     </div>
 
     <div style="margin-top: 20px; display: flex; gap: 8px; justify-content: center;">
-      <button @click="router.replace('/payments')">다시 결제하기</button>
-      <button @click="router.replace('/seats')">좌석 선택으로</button>
+      <button @click="emit('navigate', '/concert/payment')">다시 결제하기</button>
+      <button @click="emit('navigate', '/concert/seat')">좌석 선택으로</button>
     </div>
   </div>
 </template>

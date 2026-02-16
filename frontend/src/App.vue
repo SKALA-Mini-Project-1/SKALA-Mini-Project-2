@@ -9,6 +9,8 @@ import QueueScreen from './components/QueueScreen.vue';
 import SeatSelection from './components/SeatSelection.vue';
 import PaymentScreen from './components/PaymentScreen.vue';
 import BookingConfirmation from './components/BookingConfirmation.vue';
+import PaymentRedirectSuccess from './components/PaymentRedirectSuccess.vue';
+import PaymentRedirectFail from './components/PaymentRedirectFail.vue';
 import MyPage from './components/MyPage.vue';
 import ServerError from './components/ServerError.vue';
 import SoldOut from './components/SoldOut.vue';
@@ -49,6 +51,8 @@ const validPaths = new Set([
   '/concert/seat',
   '/concert/payment',
   '/concert/confirm',
+  '/payments/success',
+  '/payments/fail',
   '/mypage',
   '/login',
   '/signup',
@@ -282,6 +286,14 @@ onUnmounted(() => {
         v-else-if="normalizedPath === '/concert/payment'"
         :booking-data="bookingData"
         @payment-complete="handlePaymentComplete"
+      />
+      <PaymentRedirectSuccess
+        v-else-if="normalizedPath === '/payments/success'"
+        @navigate="navigate"
+      />
+      <PaymentRedirectFail
+        v-else-if="normalizedPath === '/payments/fail'"
+        @navigate="navigate"
       />
       <BookingConfirmation
         v-else-if="normalizedPath === '/concert/confirm'"

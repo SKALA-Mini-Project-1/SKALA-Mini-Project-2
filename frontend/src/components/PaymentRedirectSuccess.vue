@@ -1,19 +1,30 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { getToken } from "../services/auth";
 
-const route = useRoute();
-const router = useRouter();
+const emit = defineEmits<{
+  navigate: [path: string];
+}>();
 
 const loading = ref(true);
 const errorMessage = ref<string | null>(null);
 
+const getPaymentsBase = () => {
+  const apiBase =
+    (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
+    (import.meta.env.VITE_BACKEND_BASE_URL as string | undefined) ??
+    "";
+  const trimmed = apiBase.replace(/\/$/, "");
+  return trimmed ? `${trimmed}/payments` : "/api/payments";
+};
+
 async function confirmPayment(paymentKey: string, orderId: string, amount: number) {
-  const response = await fetch("/api/payments/confirm", {
+  const token = getToken();
+  const response = await fetch(`${getPaymentsBase()}/confirm`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      // 필요하면 X-USER-ID 헤더 추가
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
     },
     body: JSON.stringify({
       paymentKey,
@@ -31,9 +42,10 @@ async function confirmPayment(paymentKey: string, orderId: string, amount: numbe
 }
 
 onMounted(async () => {
-  const paymentKey = String(route.query.paymentKey ?? "");
-  const orderId = String(route.query.orderId ?? "");
-  const amount = Number(route.query.amount ?? 0);
+  const params = new URLSearchParams(window.location.search);
+  const paymentKey = params.get("paymentKey") ?? "";
+  const orderId = params.get("orderId") ?? "";
+  const amount = Number(params.get("amount") ?? 0);
 
   if (!paymentKey || !orderId || !amount) {
     errorMessage.value = "결제 승인에 필요한 정보가 누락되었습니다.";
@@ -45,24 +57,16 @@ onMounted(async () => {
     const result = await confirmPayment(paymentKey, orderId, amount);
 
     // confirm 성공 → 완료 페이지 이동
-    router.replace({
-      path: "/booking/complete",
-      query: {
-        bookingId: result.bookingId,
-      },
-    });
-
+    emit("navigate", `/concert/confirm?bookingId=${result.bookingId}`);
   } catch (error: any) {
     console.error("Confirm error:", error);
 
-    router.replace({
-      path: "/payments/fail",
-      query: {
-        code: "CONFIRM_FAILED",
-        message: error?.message ?? "결제 승인 처리 중 오류가 발생했습니다.",
-        orderId,
-      },
-    });
+    emit(
+      "navigate",
+      `/payments/fail?code=CONFIRM_FAILED&message=${encodeURIComponent(
+        error?.message ?? "결제 승인 처리 중 오류가 발생했습니다."
+      )}&orderId=${encodeURIComponent(orderId)}`
+    );
   }
 });
 </script>
