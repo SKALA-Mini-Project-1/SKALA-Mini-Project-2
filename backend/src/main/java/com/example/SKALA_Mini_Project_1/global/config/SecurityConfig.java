@@ -49,6 +49,9 @@ public class SecurityConfig {
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)  // JWT 사용으로 세션 미사용
             )
             .authorizeHttpRequests(auth -> auth
+                // 결제 관련 API는 인증 없이 접근 허용
+                .requestMatchers("/payments/**").permitAll()
+                .requestMatchers("/toss/**").permitAll()
                 // ✨ Swagger 관련 경로는 모두 허용
                 .requestMatchers(
                     "/swagger-ui/**",
