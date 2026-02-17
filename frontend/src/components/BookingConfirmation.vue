@@ -1,21 +1,54 @@
 <script setup lang="ts">
-import { Check, Home, QrCode, Smartphone } from 'lucide-vue-next';
-import { computed } from 'vue';
-import type { BookingData } from '../types';
-
-const props = defineProps<{
-  bookingData: BookingData;
-}>();
+import { Check, Home, QrCode, Smartphone } from "lucide-vue-next";
+import { computed, onMounted, ref } from "vue";
+import type { BookingData } from "../types";
 
 const emit = defineEmits<{
   navigate: [path: string];
 }>();
 
-const totalAmount = computed(() => props.bookingData.seats.reduce((sum, seat) => sum + seat.price, 0));
+const props = defineProps<{
+  bookingData?: BookingData | null;
+}>();
+
+const bookingData = ref<BookingData | null>(props.bookingData ?? null);
+const errorMessage = ref<string>("");
+
+const totalAmount = computed(() => {
+  if (!bookingData.value) return 0;
+  return bookingData.value.seats.reduce((sum, seat) => sum + seat.price, 0);
+});
+
+onMounted(async () => {
+  if (bookingData.value) {
+    return;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const bookingId = params.get("bookingId") ?? "";
+  if (!bookingId) {
+    errorMessage.value = "예매 정보를 불러올 수 없습니다. (bookingId 누락)";
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/bookings/${bookingId}`, { method: "GET" });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || `booking fetch failed: ${res.status}`);
+    }
+    bookingData.value = await res.json();
+  } catch (e: any) {
+    errorMessage.value = e?.message ?? "예매 정보를 불러오는 중 오류가 발생했습니다.";
+  }
+});
 </script>
 
 <template>
   <div class="mx-auto max-w-[800px] p-3 sm:p-4 md:p-8">
+    <div v-if="errorMessage" class="mb-6 rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-600">
+      {{ errorMessage }}
+    </div>
     <div class="mb-8 text-center md:mb-12">
       <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#FF6B00] shadow-lg md:mb-6 md:h-20 md:w-20">
         <Check :size="40" class="text-white" />
@@ -31,15 +64,15 @@ const totalAmount = computed(() => props.bookingData.seats.reduce((sum, seat) =>
     <div class="mb-8 overflow-hidden rounded-sm border border-[#e0e0e0] bg-white shadow-sm">
       <div class="flex flex-col items-start gap-1 border-b border-[#e0e0e0] bg-[#f8f8f8] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
         <span class="font-bold text-[#333]">예매정보</span>
-        <span class="text-xs text-[#666] sm:text-sm">예매번호: <span class="ml-1 text-base font-bold text-[#FF6B00] sm:text-lg">T2025-0612-15847</span></span>
+        <span class="text-xs text-[#666] sm:text-sm">예매번호: <span class="ml-1 text-base font-bold text-[#FF6B00] sm:text-lg">{{ bookingData.bookingNumber || '-' }}</span></span>
       </div>
 
       <div class="p-4 sm:p-6">
         <table class="w-full text-xs sm:text-sm">
           <tbody class="divide-y divide-[#f0f0f0]">
-            <tr><th class="w-32 py-3 text-left font-normal text-[#666]">공연명</th><td class="py-3 font-bold text-[#333]">IU 2025 HEREH WORLD TOUR ENCORE</td></tr>
+            <tr><th class="w-32 py-3 text-left font-normal text-[#666]">공연명</th><td class="py-3 font-bold text-[#333]">{{ bookingData.concertTitle || '선택한 공연' }}</td></tr>
             <tr><th class="py-3 text-left font-normal text-[#666]">일시</th><td class="py-3 text-[#333]">{{ bookingData.date }} {{ bookingData.session }}회차</td></tr>
-            <tr><th class="py-3 text-left font-normal text-[#666]">장소</th><td class="py-3 text-[#333]">서울 상암 월드컵경기장</td></tr>
+            <tr><th class="py-3 text-left font-normal text-[#666]">장소</th><td class="py-3 text-[#333]">{{ bookingData.concertVenue || '-' }}</td></tr>
             <tr>
               <th class="py-3 text-left font-normal text-[#666]">좌석</th>
               <td class="py-3 text-[#333]"><div v-for="(seat, index) in bookingData.seats" :key="`${seat.id}-${index}`">{{ seat.grade }} {{ seat.section }}구역 {{ seat.row }}열 {{ seat.col }}번</div></td>
@@ -72,7 +105,7 @@ const totalAmount = computed(() => props.bookingData.seats.reduce((sum, seat) =>
       </button>
       <button
         class="flex items-center justify-center space-x-2 rounded-sm bg-[#333] py-3 font-bold text-white transition-colors hover:bg-black md:py-4"
-        @click="emit('navigate', '/concert/detail')"
+        @click="emit('navigate', '/main')"
       >
         <Home :size="20" />
         <span>메인으로 돌아가기</span>

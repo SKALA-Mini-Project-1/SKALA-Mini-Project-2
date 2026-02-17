@@ -2,7 +2,6 @@
 
 package com.example.SKALA_Mini_Project_1.modules.payments.service;
 
-import java.math.BigDecimal;
 import java.util.Base64;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
@@ -23,10 +22,16 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 
+import com.example.SKALA_Mini_Project_1.modules.bookings.domain.Booking;
+import com.example.SKALA_Mini_Project_1.modules.payments.client.TossConfirmResponse;
+import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingItemRepository;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmRequest;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentGetResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentSubmitResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.TossWebhookRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.Payment;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.PaymentStatus;
 import com.example.SKALA_Mini_Project_1.modules.payments.repository.PaymentRepository;
@@ -41,6 +46,9 @@ public class PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final RestTemplate restTemplate; // ✅ Bean 주입
+    private final com.example.SKALA_Mini_Project_1.modules.payments.client.TossPaymentsClient tossPaymentsClient;
+    private final com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository bookingRepository;
+    private final BookingItemRepository bookingItemRepository;
 
     private static final Map<PaymentStatus, Set<PaymentStatus>> transitionMap = new EnumMap<>(PaymentStatus.class);
 
@@ -50,19 +58,24 @@ public class PaymentService {
      */
     // Create
     @Transactional
-    public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
-        if (req.getBookingId() == null) {
-            throw new IllegalArgumentException("bookingId is required");
-        }
+public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
+    if (req.getBookingId() == null) {
+        throw new IllegalArgumentException("bookingId is required");
+    }
+    if (req.getUserId() == null) {
+        throw new IllegalArgumentException("userId is required");
+    }
 
-        // // Booking 관련이 없어서 검증은 일단 주석처리
-        // // 운영 기준: booking 존재 검증
-        // if (!bookingRepository.existsById(req.getBookingId())) {
-        //     throw new EntityNotFoundException("Booking not found: " + req.getBookingId());
-        // }
+    // (권장) 동시성/중복 생성 방지: booking 락 조회로 바꾸면 더 안전
+    Booking booking = bookingRepository.findById(req.getBookingId())
+            .orElseThrow(() -> new EntityNotFoundException("Booking not found: " + req.getBookingId()));
 
-        // ✅ booking_id UNIQUE 대응: 이미 결제가 있으면 새로 만들지 말고 그대로 반환
-        return paymentRepository.findByBookingId(req.getBookingId())
+    if (!req.getUserId().equals(booking.getUserId())) {
+        throw new IllegalArgumentException("booking user mismatch");
+    }
+
+    // ✅ booking_id UNIQUE 대응: 이미 결제가 있으면 새로 만들지 말고 그대로 반환
+    return paymentRepository.findByBookingId(req.getBookingId())
             .map(existing -> new PaymentCreateResponse(
                     existing.getId(),
                     existing.getStatus(),
@@ -72,16 +85,35 @@ public class PaymentService {
             .orElseGet(() -> {
                 OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
+                if (booking.getTotalPrice() == null) {
+                    throw new IllegalStateException("booking totalPrice is required");
+                }
+
+                long amount = booking.getTotalPrice().longValue();
+                if (amount <= 0) {
+                    throw new IllegalStateException("booking amount is zero");
+                }
+
                 Payment payment = new Payment();
                 payment.setBookingId(req.getBookingId());
                 payment.setUserId(req.getUserId());
-                payment.setSeatId(req.getSeatId());
-                payment.setAmount(req.getAmount());
 
+                // seatId는 이제 의미가 애매함(booking이 다좌석 가능)
+                // 최소한으로 유지하려면 대표 1개만 넣되, null이면 안되면 예외 처리
+                Long firstSeatId = bookingItemRepository.findFirstSeatIdByBookingId(req.getBookingId());
+                if (firstSeatId == null) {
+                    throw new IllegalStateException("no seat found for booking");
+                }
+                payment.setSeatId(firstSeatId);
+
+                payment.setAmount(amount);
+
+                // DB ck_payments_status 허용값과 반드시 일치해야 함
                 payment.setStatus(PaymentStatus.PENDING);
+
                 payment.setCreatedAt(now);
                 payment.setUpdatedAt(now);
-                payment.setExpiredAt(now.plusMinutes(5)); // pending 5분
+                payment.setExpiredAt(now.plusMinutes(5));
                 payment.setIdempotencyKey(null);
 
                 Payment saved = paymentRepository.save(payment);
@@ -93,7 +125,8 @@ public class PaymentService {
                         saved.getExpiredAt()
                 );
             });
-    }
+}
+
 
     /**
      * 결제 단건 조회
@@ -119,7 +152,7 @@ public class PaymentService {
     }
 
     @Transactional
-    public PaymentSubmitResponse submit(UUID paymentId, UUID userId) {
+    public PaymentSubmitResponse submit(UUID paymentId, Long userId) {
 
     Payment payment = paymentRepository.findByIdForUpdate(paymentId)
             .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
@@ -154,7 +187,7 @@ public class PaymentService {
 
     return new PaymentSubmitResponse(
             payment.getId(),
-            payment.getStatus().name(),
+            payment.getStatus(),
             payment.getExpiredAt(),
             payment.getIdempotencyKey(),
             payment.getUpdatedAt(),
@@ -163,8 +196,8 @@ public class PaymentService {
             orderId,
             "USER_" + userId,
             payment.getOrderName(),
-            "http://localhost:8081/payments/toss/success",
-            "http://localhost:8081/payments/toss/fail"
+            "http://localhost:5173/payments/success",
+            "http://localhost:5173/payments/fail"
     );
     }
 
@@ -175,7 +208,7 @@ public class PaymentService {
     private String tossApiBase;
 
     @Transactional
-    public void handleTossSuccess(String paymentKey, String orderId, BigDecimal amount) {
+    public void handleTossSuccess(String paymentKey, String orderId, Long amount) {
 
         // 1) 결제 조회 (비관락)
         Payment payment = paymentRepository.findByPgOrderIdForUpdate(orderId)
@@ -234,7 +267,7 @@ public class PaymentService {
     // ----------------------------------------------------------------------
     // Toss Confirm Call
     // ----------------------------------------------------------------------
-    private String tossConfirm(String paymentKey, String orderId, BigDecimal amount) {
+    private String tossConfirm(String paymentKey, String orderId, Long amount) {
 
         String basicToken = Base64.getEncoder().encodeToString(
                 (tossSecretKey + ":").getBytes(StandardCharsets.UTF_8)
@@ -288,5 +321,95 @@ public class PaymentService {
     paymentRepository.save(payment);
     }
 
+    @Transactional
+    public PaymentConfirmResponse confirm(PaymentConfirmRequest request) {
+
+        Payment payment = paymentRepository.findByPgOrderId(request.getOrderId())
+                .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
+
+        // 멱등 처리
+        if (payment.getStatus() == PaymentStatus.PAID
+                || payment.getStatus() == PaymentStatus.CONFIRMED) {
+
+            return new PaymentConfirmResponse(
+                    payment.getId(),
+                    payment.getBookingId(),
+                    payment.getStatus().name()
+            );
+        }
+
+        if (payment.getStatus() != PaymentStatus.PAYING) {
+            throw new IllegalStateException("Invalid payment status: " + payment.getStatus());
+        }
+
+        long dbAmount = payment.getAmount().longValue();
+        if (dbAmount != request.getAmount()) {
+            throw new IllegalStateException("Amount mismatch");
+        }
+
+        // 🔥 토스 승인 API 호출
+        TossConfirmResponse tossResponse = tossPaymentsClient.confirm(
+                request.getPaymentKey(),
+                request.getOrderId(),
+                request.getAmount()
+        );
+
+        payment.setPgPaymentKey(tossResponse.getPaymentKey());
+        payment.setPgStatus(tossResponse.getStatus());
+        payment.setCompletedAt(OffsetDateTime.now());
+        payment.changeStatus(PaymentStatus.PAID);
+
+        Booking booking = bookingRepository.findById(payment.getBookingId())
+                .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
+
+        booking.setStatus("CONFIRMED");
+        booking.setConfirmedAt(OffsetDateTime.now());
+
+        return new PaymentConfirmResponse(
+                payment.getId(),
+                booking.getId(),
+                payment.getStatus().name()
+        );
+    }
+
+    @Transactional
+    public void handleWebhook(TossWebhookRequest request) {
+
+        Payment payment = paymentRepository.findByPgOrderId(request.getOrderId())
+                .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
+
+        // 이미 완료된 건 무시 (멱등성)
+        if (payment.getStatus() == PaymentStatus.PAID
+                || payment.getStatus() == PaymentStatus.CONFIRMED) {
+            return;
+        }
+
+        if ("DONE".equalsIgnoreCase(request.getStatus())) {
+
+            payment.setPgPaymentKey(request.getPaymentKey());
+            payment.setPgStatus(request.getStatus());
+            payment.setCompletedAt(OffsetDateTime.now());
+            payment.changeStatus(PaymentStatus.PAID);
+
+            Booking booking = bookingRepository.findById(payment.getBookingId())
+                    .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
+
+            booking.setStatus("CONFIRMED");
+            booking.setConfirmedAt(OffsetDateTime.now());
+
+        } else if ("CANCELED".equalsIgnoreCase(request.getStatus())
+                || "FAILED".equalsIgnoreCase(request.getStatus())) {
+
+            payment.changeStatus(PaymentStatus.FAILED);
+
+            Booking booking = bookingRepository.findById(payment.getBookingId())
+                    .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
+
+            booking.setStatus("CANCELED");
+            booking.setCanceledAt(OffsetDateTime.now());
+        }
+    }
+
+    
 
 }

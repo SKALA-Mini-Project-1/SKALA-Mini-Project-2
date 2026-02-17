@@ -1,6 +1,5 @@
 package com.example.SKALA_Mini_Project_1.modules.payments.domain;
 
-import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.EnumMap;
 import java.util.UUID;
@@ -36,7 +35,7 @@ public class Payment {
     private Long seatId;
 
     @Column(name = "amount", precision = 12, scale = 2)
-    private BigDecimal amount;
+    private Long amount;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status")

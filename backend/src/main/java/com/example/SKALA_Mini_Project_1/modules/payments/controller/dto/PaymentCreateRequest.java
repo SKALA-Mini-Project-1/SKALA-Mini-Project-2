@@ -2,8 +2,6 @@
 
 package com.example.SKALA_Mini_Project_1.modules.payments.controller.dto;
 
-import java.math.BigDecimal;
-
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
@@ -18,11 +16,5 @@ public class PaymentCreateRequest {
 
     @NotNull
     private Long userId;
-
-    @NotNull
-    private Long seatId;
-
-    @NotNull
-    private BigDecimal amount;
 
 }

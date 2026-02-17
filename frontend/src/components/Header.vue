@@ -12,47 +12,52 @@ const emit = defineEmits<{
 }>();
 
 const navItems: Array<{ path: string; label: string }> = [
-  { path: '/concert/detail', label: '공연상세' },
-  { path: '/concert/queue', label: '대기열' },
-  { path: '/concert/seat', label: '좌석선택' },
-  { path: '/concert/payment', label: '결제하기' },
-  { path: '/concert/confirm', label: '예매확인' },
+  { path: '/main', label: '메인' },
+  { path: '/concerts', label: '콘서트' },
+  { path: '/concert/detail', label: '상세' },
+  { path: '/concert/open', label: '오픈대기' },
   { path: '/mypage', label: '마이페이지' }
 ];
 
-const isActive = (path: string) => props.currentPath.startsWith(path);
+const isActive = (path: string) => {
+  if (path === '/main') {
+    return props.currentPath === '/main';
+  }
+  return props.currentPath.startsWith(path);
+};
 </script>
 
 <template>
-  <header class="sticky top-0 z-50 w-full border-b border-[#e0e0e0] bg-white">
-    <div class="hidden border-b border-[#e0e0e0] bg-[#f8f8f8] py-1 md:block">
-      <div class="mx-auto flex max-w-[1200px] justify-end space-x-4 px-4 text-xs text-[#666]">
+  <header class="sticky top-0 z-50 w-full border-b border-[#d8e2ef] bg-white/95 backdrop-blur">
+    <div class="hidden border-b border-[#dfe7f0] bg-[#f7fafd] py-2 md:block">
+      <div class="mx-auto flex max-w-[1280px] justify-end space-x-4 px-4 text-xs text-[#4f6480]">
         <button v-if="!isAuthenticated" class="hover:underline" @click="emit('navigate', '/login')">로그인</button>
         <button v-if="!isAuthenticated" class="hover:underline" @click="emit('navigate', '/signup')">회원가입</button>
         <button v-if="isAuthenticated" class="hover:underline" @click="emit('logout')">로그아웃</button>
-        <span class="text-[#ddd]">|</span>
+        <span class="text-[#c8d5e2]">|</span>
         <button class="hover:underline">고객센터</button>
-        <span class="text-[#ddd]">|</span>
+        <span class="text-[#c8d5e2]">|</span>
         <button class="hover:underline" @click="emit('navigate', '/mypage')">마이페이지</button>
       </div>
     </div>
 
-    <div class="mx-auto flex max-w-[1200px] items-center justify-between px-4 py-3 md:h-20 md:py-0">
+    <div class="mx-auto flex max-w-[1280px] items-center justify-between px-4 py-3 md:h-20 md:py-0">
       <div class="flex items-center space-x-3 md:space-x-8">
         <button
-          class="flex items-center text-xl font-bold tracking-tighter text-[#FF6B00] md:text-2xl"
-          @click="emit('navigate', '/concert/detail')"
+          class="flex items-center text-xl font-black tracking-tight text-[#ff7a00] md:text-2xl"
+          @click="emit('navigate', '/main')"
         >
-          <span class="mr-1">🎫</span> FairLine Ticket
+          <span class="mr-2">FairLine</span>
+          <span class="rounded bg-[#102a49] px-2 py-1 text-sm text-white md:text-base">Ticket</span>
         </button>
 
         <div class="relative hidden md:block">
           <input
             type="text"
-            placeholder="공연, 뮤지컬, 티켓 검색"
-            class="h-10 w-80 border-2 border-[#FF6B00] pl-4 pr-10 text-sm outline-none"
+            placeholder="아티스트, 공연명, 장소 검색"
+            class="h-11 w-96 rounded-lg border border-[#d6e3f2] bg-[#f9fbfe] pl-4 pr-10 text-sm text-[#254563] outline-none focus:border-[#ff7a00]"
           />
-          <button class="absolute right-0 top-0 flex h-10 w-10 items-center justify-center text-[#FF6B00]">
+          <button class="absolute right-0 top-0 flex h-11 w-10 items-center justify-center text-[#ff7a00]">
             <Search :size="20" />
           </button>
         </div>
@@ -60,7 +65,7 @@ const isActive = (path: string) => props.currentPath.startsWith(path);
 
       <div class="flex items-center space-x-3 md:space-x-4">
         <button
-          class="hidden items-center space-x-1 rounded-sm border border-[#ddd] px-3 py-1.5 text-sm hover:bg-gray-50 md:flex"
+          class="hidden items-center space-x-1 rounded-lg border border-[#d0deec] px-3 py-2 text-sm text-[#244260] hover:bg-[#f3f8fe] md:flex"
           @click="emit('navigate', '/mypage')"
         >
           <User :size="16" />
@@ -72,8 +77,8 @@ const isActive = (path: string) => props.currentPath.startsWith(path);
       </div>
     </div>
 
-    <div class="border-t border-[#e0e0e0]">
-      <div class="mx-auto max-w-[1200px] px-4">
+    <div class="border-t border-[#e0e7f0]">
+      <div class="mx-auto max-w-[1280px] px-4">
         <nav class="flex space-x-1 overflow-x-auto whitespace-nowrap">
           <button
             v-for="item in navItems"
@@ -81,24 +86,16 @@ const isActive = (path: string) => props.currentPath.startsWith(path);
             class="border-b-2 px-6 py-3 text-sm font-bold transition-colors"
             :class="
               isActive(item.path)
-                ? 'border-[#FF6B00] text-[#FF6B00]'
-                : 'border-transparent text-[#333] hover:text-[#FF6B00]'
+                ? 'border-[#ff7a00] text-[#ff7a00]'
+                : 'border-transparent text-[#2c4764] hover:text-[#ff7a00]'
             "
             @click="emit('navigate', item.path)"
           >
             {{ item.label }}
           </button>
+          <span class="flex items-center px-4 text-xs font-semibold text-[#6a819a]">예매가이드</span>
+          <span class="flex items-center px-4 text-xs font-semibold text-[#6a819a]">고객센터</span>
         </nav>
-      </div>
-    </div>
-
-    <div class="hidden border-b border-[#e0e0e0] bg-[#f5f5f5] py-2 md:block">
-      <div class="mx-auto flex max-w-[1200px] items-center px-4 text-xs text-[#666]">
-        <span>홈</span>
-        <span class="mx-2 text-[#999]">&gt;</span>
-        <span>콘서트</span>
-        <span class="mx-2 text-[#999]">&gt;</span>
-        <span class="font-bold text-[#333]">IU 2025 HEREH WORLD TOUR ENCORE</span>
       </div>
     </div>
   </header>

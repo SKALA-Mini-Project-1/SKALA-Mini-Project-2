@@ -2,7 +2,6 @@ package com.example.SKALA_Mini_Project_1.modules.payments.controller;
 
 import java.net.URI;
 import java.util.UUID;
-import java.math.BigDecimal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.RequestBody;
 import jakarta.validation.Valid;
@@ -16,16 +15,19 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmRequest;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentGetResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentSubmitResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.TossWebhookRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.service.PaymentService;
 
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/payments")
+@RequestMapping("/api/payments")
 public class PaymentController {
 
     private final PaymentService paymentService;
@@ -45,9 +47,14 @@ public class PaymentController {
     @PostMapping("/{paymentId}/submit")
     public PaymentSubmitResponse submit(
             @PathVariable UUID paymentId,
-            @RequestHeader("X-USER-ID") UUID userId
+            @RequestHeader("X-USER-ID") Long userId
     ) {
         return paymentService.submit(paymentId, userId);
+    }
+
+    @PostMapping("/confirm")
+    public PaymentConfirmResponse confirm(@RequestBody PaymentConfirmRequest request) {
+        return paymentService.confirm(request);
     }
 
 
@@ -55,13 +62,13 @@ public class PaymentController {
     public ResponseEntity<Void> tossSuccess(
         @RequestParam String paymentKey,
         @RequestParam String orderId,
-        @RequestParam BigDecimal amount) {
+        @RequestParam Long amount) {
 
     paymentService.handleTossSuccess(paymentKey, orderId, amount);
 
-    URI redirect = URI.create(
-            "http://localhost:3000/payments/result?orderId=" + orderId + "&result=success"
-    );
+        URI redirect = URI.create(
+            "http://localhost:5173/payments/success?paymentKey=" + paymentKey + "&orderId=" + orderId + "&amount=" + amount
+        );
 
     return ResponseEntity.status(HttpStatus.FOUND)
             .location(redirect)
@@ -76,14 +83,23 @@ public class PaymentController {
 
     paymentService.handleTossFail(orderId, code, message);
 
-    URI redirect = URI.create(
-            "http://localhost:3000/payments/result?orderId=" + orderId + "&result=fail"
-    );
+        URI redirect = URI.create(
+            "http://localhost:5173/payments/fail?code=" + (code == null ? "PAYMENT_FAILED" : code)
+                + "&message=" + (message == null ? "" : message)
+                + "&orderId=" + orderId
+        );
 
     return ResponseEntity.status(HttpStatus.FOUND)
             .location(redirect)
             .build();
     }  
+
+    @PostMapping("/toss/webhook")
+    public void tossWebhook(
+            @RequestBody TossWebhookRequest request
+    ) {
+        paymentService.handleWebhook(request);
+    }
 
 
 }
