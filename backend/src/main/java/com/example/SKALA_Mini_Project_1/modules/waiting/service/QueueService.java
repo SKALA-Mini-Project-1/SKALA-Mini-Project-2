@@ -1,5 +1,6 @@
 package com.example.SKALA_Mini_Project_1.modules.waiting.service;
 
+import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
 import com.example.SKALA_Mini_Project_1.modules.users.UserRepository;
 import com.example.SKALA_Mini_Project_1.modules.users.User;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.QueueStatusResponse;
@@ -23,6 +24,7 @@ public class QueueService {
 
     private static final long MAX_SEAT_CAPACITY = 500;
     private static final int MAX_WEIGHT_MILLIS = 5000; // 팬점수 최대 보정치
+    private static final Duration QUEUE_HEARTBEAT_TTL = Duration.ofMinutes(10);
 
     public TicketingStartResponse startTicketing(Long concertId, Long scheduleId, Long userId) {
 
@@ -52,6 +54,7 @@ public class QueueService {
         long score = now - weight + jitter;
 
         redisTemplate.opsForZSet().add(key, userId, score);
+        refreshQueueHeartbeat(concertId, scheduleId, userId);
 
         Long rank = redisTemplate.opsForZSet().rank(key, userId);
 
@@ -74,6 +77,7 @@ public class QueueService {
 
         if (rank < availableSlots) {
             Long removed = redisTemplate.opsForZSet().remove(queueKey, userId);
+            clearQueueHeartbeat(concertId, scheduleId, userId);
             return removed != null && removed > 0;
         }
         return false;
@@ -102,6 +106,8 @@ public class QueueService {
             return QueueStatusResponse.waiting(null);
         }
 
+        refreshQueueHeartbeat(concertId, scheduleId, String.valueOf(userId));
+
         if (canEnter(concertId, scheduleId, String.valueOf(userId))) {
             String entryToken = issueEntryToken(userId, concertId, scheduleId);
             return QueueStatusResponse.enter(entryToken);
@@ -114,7 +120,17 @@ public class QueueService {
         validateScheduleBelongsToConcert(concertId, scheduleId);
         String queueKey = getQueueKey(concertId, scheduleId);
         Long removed = redisTemplate.opsForZSet().remove(queueKey, String.valueOf(userId));
+        clearQueueHeartbeat(concertId, scheduleId, String.valueOf(userId));
         return removed != null && removed > 0;
+    }
+
+    public boolean hasQueueHeartbeat(Long concertId, Long scheduleId, String userId) {
+        String key = RedisKeyGenerator.queueHeartbeatKey(concertId, scheduleId, userId);
+        return Boolean.TRUE.equals(redisTemplate.hasKey(key));
+    }
+
+    public void clearQueueHeartbeat(Long concertId, Long scheduleId, String userId) {
+        redisTemplate.delete(RedisKeyGenerator.queueHeartbeatKey(concertId, scheduleId, userId));
     }
 
     private void validateScheduleBelongsToConcert(Long concertId, Long scheduleId) {
@@ -140,5 +156,13 @@ public class QueueService {
 
     private String getActiveKey(Long concertId, Long scheduleId) {
         return "seat:active:concert:" + concertId + ":schedule:" + scheduleId;
+    }
+
+    private void refreshQueueHeartbeat(Long concertId, Long scheduleId, String userId) {
+        redisTemplate.opsForValue().set(
+                RedisKeyGenerator.queueHeartbeatKey(concertId, scheduleId, userId),
+                "1",
+                QUEUE_HEARTBEAT_TTL
+        );
     }
 }
