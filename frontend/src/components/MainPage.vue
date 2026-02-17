@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { CalendarDays, ChevronRight, MapPin, Ticket } from 'lucide-vue-next';
+import { computed } from 'vue';
 import type { ConcertItem } from '../types';
 
 const props = defineProps<{
@@ -11,16 +12,20 @@ const emit = defineEmits<{
   navigate: [path: string];
 }>();
 
-const heroConcert = props.concerts[0];
-const hotConcerts = props.concerts.slice(1, 4);
+const heroConcert = computed(() => props.concerts[0] ?? null);
+const hotConcerts = computed(() => props.concerts.slice(1, 4));
 </script>
 
 <template>
   <div class="mx-auto max-w-[1280px] px-4 pb-12 pt-6 md:px-6 md:pb-16 md:pt-8">
+    <div v-if="!heroConcert" class="rounded-2xl border border-[#d9e3ee] bg-white p-10 text-center text-sm text-[#5d7692]">
+      등록된 콘서트가 없습니다.
+    </div>
     <section
+      v-else
       class="relative overflow-hidden rounded-3xl bg-[#081326] p-6 text-white md:p-10"
       :style="{
-        backgroundImage: `linear-gradient(120deg, rgba(8,19,38,0.96), rgba(11,38,63,0.7)), url(${heroConcert.heroImage})`,
+        backgroundImage: `linear-gradient(120deg, rgba(8,19,38,0.96), rgba(11,38,63,0.7)), url(${heroConcert?.heroImage})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center'
       }"
@@ -28,14 +33,14 @@ const hotConcerts = props.concerts.slice(1, 4);
       <div class="absolute -right-8 -top-8 h-40 w-40 rounded-full bg-[#ff7a00]/20 blur-2xl"></div>
       <div class="relative z-10 max-w-2xl">
         <p class="mb-3 inline-flex rounded-full bg-white/15 px-3 py-1 text-xs font-semibold tracking-wide">티켓 오픈 임박</p>
-        <h1 class="text-3xl font-extrabold leading-tight md:text-5xl">{{ heroConcert.title }}</h1>
-        <p class="mt-2 text-lg font-semibold text-[#ffbe7a]">{{ heroConcert.subtitle }}</p>
+        <h1 class="text-3xl font-extrabold leading-tight md:text-5xl">{{ heroConcert?.title }}</h1>
+        <p class="mt-2 text-lg font-semibold text-[#ffbe7a]">{{ heroConcert?.subtitle }}</p>
         <div class="mt-5 space-y-2 text-sm text-slate-200 md:text-base">
-          <div class="flex items-center gap-2"><MapPin :size="16" />{{ heroConcert.venue }}</div>
-          <div class="flex items-center gap-2"><CalendarDays :size="16" />{{ heroConcert.period }}</div>
+          <div class="flex items-center gap-2"><MapPin :size="16" />{{ heroConcert?.venue }}</div>
+          <div class="flex items-center gap-2"><CalendarDays :size="16" />{{ heroConcert?.period }}</div>
         </div>
         <div class="mt-8 flex flex-wrap gap-3">
-          <button class="rounded-xl bg-[#ff7a00] px-5 py-3 text-sm font-bold hover:bg-[#e86f00]" @click="emit('openConcert', heroConcert.id)">
+          <button class="rounded-xl bg-[#ff7a00] px-5 py-3 text-sm font-bold hover:bg-[#e86f00]" @click="heroConcert && emit('openConcert', heroConcert.id)">
             예매하기
           </button>
           <button class="rounded-xl border border-white/40 px-5 py-3 text-sm font-semibold hover:bg-white/10" @click="emit('navigate', '/concerts')">

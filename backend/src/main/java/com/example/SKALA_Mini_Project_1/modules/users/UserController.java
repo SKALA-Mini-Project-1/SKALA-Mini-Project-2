@@ -10,6 +10,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -24,6 +25,7 @@ import com.example.SKALA_Mini_Project_1.modules.users.dto.LoginRequest;
 import com.example.SKALA_Mini_Project_1.modules.users.dto.LoginResponse;
 import com.example.SKALA_Mini_Project_1.modules.users.dto.SignUpRequest;
 import com.example.SKALA_Mini_Project_1.modules.users.dto.SignUpResponse;
+import com.example.SKALA_Mini_Project_1.modules.users.dto.UpdateMyInfoRequest;
 import com.example.SKALA_Mini_Project_1.modules.users.service.EmailVerificationService;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -39,7 +41,6 @@ import lombok.RequiredArgsConstructor;
 public class UserController {
     
     private final UserService userService;
-    private final UserRepository userRepository;
     private final EmailVerificationService emailVerificationService;
 
     
@@ -150,14 +151,34 @@ public class UserController {
                 .getAuthentication()
                 .getPrincipal();
         
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다"));
+        User user = userService.getUserById(userId);
         
         return ResponseEntity.ok(Map.of(
             "userId", user.getId(),
             "email", user.getEmail(),
             "name", user.getName(),
+            "phone", user.getPhone() == null ? "" : user.getPhone(),
+            "fanScore", user.getFanScore() == null ? 0 : user.getFanScore(),
             "message", "인증된 사용자 정보 조회 성공"
+        ));
+    }
+
+    @Operation(summary = "내 정보 수정", description = "현재 인증된 사용자의 이름/전화번호를 수정합니다")
+    @PutMapping("/me")
+    public ResponseEntity<?> updateMyInfo(@Valid @RequestBody UpdateMyInfoRequest request) {
+        Long userId = (Long) SecurityContextHolder.getContext()
+                .getAuthentication()
+                .getPrincipal();
+
+        User user = userService.updateMyInfo(userId, request);
+
+        return ResponseEntity.ok(Map.of(
+                "userId", user.getId(),
+                "email", user.getEmail(),
+                "name", user.getName(),
+                "phone", user.getPhone() == null ? "" : user.getPhone(),
+                "fanScore", user.getFanScore() == null ? 0 : user.getFanScore(),
+                "message", "내 정보 수정 성공"
         ));
     }
 
