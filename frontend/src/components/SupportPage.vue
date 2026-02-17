@@ -1,11 +1,6 @@
 <script setup lang="ts">
 const faqs: Array<{ question: string; answer: string }> = [
   {
-    question: '로그인이 안 돼요.',
-    answer:
-      '이메일/비밀번호를 다시 확인해주세요. 계속 실패하면 비밀번호를 재설정한 뒤 다시 로그인해주세요.',
-  },
-  {
     question: '결제가 실패했는데 좌석이 사라졌어요.',
     answer:
       '결제 실패 시 좌석은 자동으로 해제될 수 있습니다. 좌석 선택 화면으로 돌아가 다시 선택 후 결제를 진행해주세요.',
