@@ -33,6 +33,11 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
     Optional<Payment> findByPgOrderId(String pgOrderId);
 
+    long countByStatus(PaymentStatus status);
+
+    List<Payment> findTop50ByStatusOrderByUpdatedAtDesc(PaymentStatus status);
+    List<Payment> findTop50ByUserIdAndStatusOrderByUpdatedAtDesc(Long userId, PaymentStatus status);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<Payment> findTop200ByStatusInAndExpiredAtBeforeOrderByExpiredAtAsc(
             Collection<PaymentStatus> statuses,

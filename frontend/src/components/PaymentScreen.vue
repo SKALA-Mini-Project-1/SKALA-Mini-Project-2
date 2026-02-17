@@ -96,7 +96,7 @@ const handlePayment = async () => {
     }
 
     const created = await createPayment({ bookingId, userId: authUser.userId }, token);
-    const submitted = await submitPayment(created.paymentId, authUser.userId, token);
+    const submitted = await submitPayment(created.paymentId, token);
 
     const amount = submitted.amount;
     const orderId = submitted.orderId;
