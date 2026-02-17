@@ -174,6 +174,7 @@ public class BookingService {
 
         Map<String, Object> concert = new HashMap<>();
         concert.put("concertName", concertInfo.getConcertTitle());
+        concert.put("venue", concertInfo.getConcertVenue());
         concert.put(
                 "showDateTime",
                 concertInfo.getShowTime() == null

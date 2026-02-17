@@ -25,10 +25,13 @@ export type PaymentSubmitResponse = {
   failUrl: string;
 };
 
-export async function createPayment(req: PaymentCreateRequest): Promise<PaymentCreateResponse> {
+export async function createPayment(req: PaymentCreateRequest, token: string): Promise<PaymentCreateResponse> {
   const res = await fetch("/api/payments/create", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
     body: JSON.stringify(req),
   });
 
@@ -40,12 +43,13 @@ export async function createPayment(req: PaymentCreateRequest): Promise<PaymentC
   return await res.json();
 }
 
-export async function submitPayment(paymentId: string, userId: number): Promise<PaymentSubmitResponse> {
+export async function submitPayment(paymentId: string, userId: number, token: string): Promise<PaymentSubmitResponse> {
   const res = await fetch(`/api/payments/${paymentId}/submit`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-USER-ID": String(userId)
+      "X-USER-ID": String(userId),
+      Authorization: `Bearer ${token}`
     }
   });
 

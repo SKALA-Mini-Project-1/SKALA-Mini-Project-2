@@ -26,6 +26,7 @@ import com.example.SKALA_Mini_Project_1.modules.bookings.domain.Booking;
 import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
 import com.example.SKALA_Mini_Project_1.modules.payments.client.TossConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingItemRepository;
+import com.example.SKALA_Mini_Project_1.modules.seats.repository.SeatRepository;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateRequest;
@@ -51,6 +52,7 @@ public class PaymentService {
     private final com.example.SKALA_Mini_Project_1.modules.payments.client.TossPaymentsClient tossPaymentsClient;
     private final com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository bookingRepository;
     private final BookingItemRepository bookingItemRepository;
+    private final SeatRepository seatRepository;
     private final RedisTemplate<String, String> redisTemplate;
 
     private static final Map<PaymentStatus, Set<PaymentStatus>> transitionMap = new EnumMap<>(PaymentStatus.class);
@@ -262,6 +264,7 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
         } else {
             payment.changeStatus(PaymentStatus.PAID);
             payment.setCompletedAt(now);
+            confirmPayment(payment, now);
         }
 
         paymentRepository.save(payment);
@@ -327,13 +330,21 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
     @Transactional
     public PaymentConfirmResponse confirm(PaymentConfirmRequest request) {
 
-        Payment payment = paymentRepository.findByPgOrderId(request.getOrderId())
+        Payment payment = paymentRepository.findByPgOrderIdForUpdate(request.getOrderId())
                 .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
 
         // 멱등 처리
-        if (payment.getStatus() == PaymentStatus.PAID
-                || payment.getStatus() == PaymentStatus.CONFIRMED) {
+        if (payment.getStatus() == PaymentStatus.CONFIRMED) {
 
+            return new PaymentConfirmResponse(
+                    payment.getId(),
+                    payment.getBookingId(),
+                    payment.getStatus().name()
+            );
+        }
+
+        if (payment.getStatus() == PaymentStatus.PAID) {
+            confirmPayment(payment, OffsetDateTime.now(ZoneOffset.UTC));
             return new PaymentConfirmResponse(
                     payment.getId(),
                     payment.getBookingId(),
@@ -359,33 +370,15 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
 
         payment.setPgPaymentKey(tossResponse.getPaymentKey());
         payment.setPgStatus(tossResponse.getStatus());
-        payment.setCompletedAt(OffsetDateTime.now());
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        payment.setCompletedAt(now);
+        payment.setUpdatedAt(now);
         payment.changeStatus(PaymentStatus.PAID);
-
-        Booking booking = bookingRepository.findById(payment.getBookingId())
-                .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
-        Long scheduleId = booking.getScheduleId();
-        Long concertId = bookingRepository.findConcertIdByBookingId(payment.getBookingId())
-                .orElseThrow(() -> new IllegalStateException("Concert not found for booking: " + payment.getBookingId()));
-
-        if (scheduleId != null) {
-            String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
-            Long active = redisTemplate.opsForValue().decrement(activeKey);
-            if (active == null || active < 0) {
-                redisTemplate.opsForValue().set(activeKey, "0");
-                active = 0L;
-            }
-            System.out.println("ACTIVE 감소 → 현재 인원: " + active);
-        }
-        
-
-
-        booking.setStatus("CONFIRMED");
-        booking.setConfirmedAt(OffsetDateTime.now());
+        confirmPayment(payment, now);
 
         return new PaymentConfirmResponse(
                 payment.getId(),
-                booking.getId(),
+                payment.getBookingId(),
                 payment.getStatus().name()
         );
     }
@@ -393,38 +386,79 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
     @Transactional
     public void handleWebhook(TossWebhookRequest request) {
 
-        Payment payment = paymentRepository.findByPgOrderId(request.getOrderId())
+        Payment payment = paymentRepository.findByPgOrderIdForUpdate(request.getOrderId())
                 .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
 
-        // 이미 완료된 건 무시 (멱등성)
-        if (payment.getStatus() == PaymentStatus.PAID
-                || payment.getStatus() == PaymentStatus.CONFIRMED) {
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        payment.setPgPaymentKey(request.getPaymentKey());
+        payment.setPgStatus(request.getStatus());
+        payment.setUpdatedAt(now);
+
+        // 이미 확정된 건 무시 (멱등성)
+        if (payment.getStatus() == PaymentStatus.CONFIRMED) {
             return;
         }
 
         if ("DONE".equalsIgnoreCase(request.getStatus())) {
+            if (payment.getStatus() == PaymentStatus.EXPIRED) {
+                payment.changeStatus(PaymentStatus.REFUND_REQUIRED);
+                return;
+            }
 
-            payment.setPgPaymentKey(request.getPaymentKey());
-            payment.setPgStatus(request.getStatus());
-            payment.setCompletedAt(OffsetDateTime.now());
-            payment.changeStatus(PaymentStatus.PAID);
+            if (payment.getStatus() == PaymentStatus.PAYING) {
+                payment.changeStatus(PaymentStatus.PAID);
+                payment.setCompletedAt(now);
+            }
 
-            Booking booking = bookingRepository.findById(payment.getBookingId())
-                    .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
-
-            booking.setStatus("CONFIRMED");
-            booking.setConfirmedAt(OffsetDateTime.now());
+            if (payment.getStatus() == PaymentStatus.PAID) {
+                confirmPayment(payment, now);
+            }
 
         } else if ("CANCELED".equalsIgnoreCase(request.getStatus())
                 || "FAILED".equalsIgnoreCase(request.getStatus())) {
-
-            payment.changeStatus(PaymentStatus.FAILED);
+            if (payment.getStatus() == PaymentStatus.PAYING
+                    || payment.getStatus() == PaymentStatus.PENDING) {
+                payment.changeStatus(PaymentStatus.FAILED);
+            } else {
+                return;
+            }
 
             Booking booking = bookingRepository.findById(payment.getBookingId())
                     .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
 
             booking.setStatus("CANCELED");
-            booking.setCanceledAt(OffsetDateTime.now());
+            booking.setCanceledAt(now);
+        }
+    }
+
+    private void confirmPayment(Payment payment, OffsetDateTime now) {
+        if (payment.getStatus() == PaymentStatus.CONFIRMED) {
+            return;
+        }
+        if (payment.getStatus() != PaymentStatus.PAID) {
+            throw new IllegalStateException("Payment must be PAID before confirm: " + payment.getStatus());
+        }
+
+        payment.changeStatus(PaymentStatus.CONFIRMED);
+        payment.setUpdatedAt(now);
+        seatRepository.reserveSeatsByBookingId(payment.getBookingId());
+
+        Booking booking = bookingRepository.findById(payment.getBookingId())
+                .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
+        if (!"CONFIRMED".equalsIgnoreCase(booking.getStatus())) {
+            booking.setStatus("CONFIRMED");
+            booking.setConfirmedAt(now);
+        }
+
+        Long scheduleId = booking.getScheduleId();
+        if (scheduleId != null) {
+            Long concertId = bookingRepository.findConcertIdByBookingId(payment.getBookingId())
+                    .orElseThrow(() -> new IllegalStateException("Concert not found for booking: " + payment.getBookingId()));
+            String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
+            Long active = redisTemplate.opsForValue().decrement(activeKey);
+            if (active == null || active < 0) {
+                redisTemplate.opsForValue().set(activeKey, "0");
+            }
         }
     }
 
