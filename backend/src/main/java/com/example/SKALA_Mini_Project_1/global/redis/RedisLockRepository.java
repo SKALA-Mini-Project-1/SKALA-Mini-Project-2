@@ -59,4 +59,24 @@ public class RedisLockRepository {
         }
         return count;
     }
+
+    public int releaseUserHeldSeats(Long concertId, Long scheduleId, String userId) {
+        Set<String> keys = redisTemplate.keys("seat:concert:" + concertId + ":schedule:" + scheduleId + ":*");
+        if (keys == null || keys.isEmpty()) {
+            return 0;
+        }
+
+        int released = 0;
+        for (String key : keys) {
+            String owner = redisTemplate.opsForValue().get(key);
+            if (!userId.equals(owner)) {
+                continue;
+            }
+            Boolean deleted = redisTemplate.delete(key);
+            if (Boolean.TRUE.equals(deleted)) {
+                released++;
+            }
+        }
+        return released;
+    }
 }

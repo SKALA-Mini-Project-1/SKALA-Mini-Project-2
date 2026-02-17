@@ -24,73 +24,39 @@ public class QueueController {
 
     @PostMapping("/start")
         public ResponseEntity<?> startTicketing(
-                @RequestParam String concertCode,
+                @RequestParam Long concertId,
                 @RequestParam Long scheduleId,
                 Authentication authentication
         ) {
 
         Long userId = (Long) authentication.getPrincipal();
 
-        TicketingStartResponse response =queueService.startTicketing(concertCode, scheduleId, userId);
+        TicketingStartResponse response = queueService.startTicketing(concertId, scheduleId, userId);
 
         return ResponseEntity.ok(response);
         }
 
      @GetMapping("/status")
         public QueueStatusResponse getStatus(
-                @RequestParam String concertCode,
+                @RequestParam Long concertId,
                 @RequestParam Long scheduleId,
                 Authentication authentication
         ) {
         Long userId = (Long) authentication.getPrincipal();
-        return queueService.getStatus(concertCode, scheduleId, userId);
+        return queueService.getStatus(concertId, scheduleId, userId);
         }
 
-    @PostMapping("/dev/seed-ahead")
-    public ResponseEntity<?> seedAhead(
-            @RequestParam String concertCode,
+    @PostMapping("/leave")
+    public ResponseEntity<?> leaveQueue(
+            @RequestParam Long concertId,
             @RequestParam Long scheduleId,
-            @RequestParam(defaultValue = "150") int count,
             Authentication authentication
     ) {
         Long userId = (Long) authentication.getPrincipal();
-        Long rank = queueService.seedQueueAheadForTest(concertCode, scheduleId, userId, count);
+        boolean removed = queueService.leaveQueue(concertId, scheduleId, userId);
         return ResponseEntity.ok(Map.of(
                 "status", "success",
-                "seedCount", count,
-                "rank", rank
+                "removed", removed
         ));
     }
-
-//     @GetMapping("/rank")
-//     public ResponseEntity<?> rank(
-//             @RequestParam Long concertId,
-//             @RequestParam String userId) {
-
-//         long rank = queueService.getRank(concertId, userId);
-
-//         return ResponseEntity.ok(Map.of(
-//                 "rank", rank
-//         ));
-//     }
-
-
-//     @PostMapping("/try-enter-seat")
-//         public ResponseEntity<?> tryEnterSeat(
-//                 @RequestParam Long concertId,
-//                 @RequestParam String userId
-//         ) {
-
-//         String token = queueService.tryEnterSeat(concertId, userId);
-
-//         if (token == null) {
-//                 return ResponseEntity.status(403)
-//                         .body("아직 입장 불가");
-//         }
-
-//         return ResponseEntity.ok(Map.of(
-//                 "entryToken", token,
-//                 "redirectUrl", "http://localhost:8081/api/seats/seats?token=" + token
-//         ));
-//         }
 }

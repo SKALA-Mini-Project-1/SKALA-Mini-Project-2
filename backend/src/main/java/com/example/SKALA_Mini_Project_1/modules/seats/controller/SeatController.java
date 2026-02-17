@@ -20,14 +20,17 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.example.SKALA_Mini_Project_1.modules.seats.domain.Seat;
 import com.example.SKALA_Mini_Project_1.modules.seats.dto.BatchSeatHoldRequest;
 import com.example.SKALA_Mini_Project_1.modules.seats.dto.SeatSelectRequest;
+import com.example.SKALA_Mini_Project_1.modules.seats.repository.SeatRepository;
 import com.example.SKALA_Mini_Project_1.modules.seats.service.SeatReservationService;
 import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
 
 
 import org.springframework.data.redis.core.RedisTemplate;
 
+import java.time.Duration;
 import java.util.Map;
 
 @RestController
@@ -38,10 +41,11 @@ public class SeatController {
 
     private final SeatReservationService seatReservationService;
     private final RedisTemplate<String, String> redisTemplate;
+    private final SeatRepository seatRepository;
 
     
 
-    @PostMapping("/{seatId}/hold")
+    @PostMapping("/hold")
     @Operation(
             summary = "좌석 선점 또는 해제",
             description = "JWT 인증 사용자 기준으로 좌석을 선점합니다. 이미 같은 사용자가 선점한 좌석을 다시 요청하면 선점이 해제됩니다."
@@ -58,10 +62,11 @@ public class SeatController {
             Long userId = (Long) SecurityContextHolder.getContext()
                     .getAuthentication()
                     .getPrincipal();
+            Long seatId = resolveSeatId(requestDto);
 
             SeatReservationService.SeatHoldResult result = seatReservationService.reserveSeatTemporary(
-                    requestDto.getConcertId(),
-                    requestDto.getSeatId(),
+                    requestDto.getScheduleId(),
+                    seatId,
                     userId
             );
 
@@ -172,9 +177,10 @@ public class SeatController {
                 .getPrincipal();
 
         try {
+            Long seatId = resolveSeatId(requestDto);
             SeatReservationService.SeatReleaseResult result = seatReservationService.releaseSeatHold(
-                    requestDto.getConcertId(),
-                    requestDto.getSeatId(),
+                    requestDto.getScheduleId(),
+                    seatId,
                     userId
             );
 
@@ -209,6 +215,70 @@ public class SeatController {
         }
     }
 
+    @PostMapping("/leave")
+    public ResponseEntity<?> leaveSeatScreen(
+            @RequestParam Long concertId,
+            @RequestParam Long scheduleId
+    ) {
+        Long userId = (Long) SecurityContextHolder.getContext()
+                .getAuthentication()
+                .getPrincipal();
+
+        Long resolvedConcertId = seatRepository.findConcertIdByScheduleId(scheduleId)
+                .orElseThrow(() -> new EntityNotFoundException("스케줄이 존재하지 않습니다. ID: " + scheduleId));
+        if (!resolvedConcertId.equals(concertId)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "message", "콘서트/회차 정보가 일치하지 않습니다.",
+                    "status", "bad_request"
+            ));
+        }
+
+        int releasedSeatCount = seatReservationService.releaseAllSeatHolds(scheduleId, userId);
+
+        String accessKey = RedisKeyGenerator.seatAccessKey(userId, concertId, scheduleId);
+        String accessByScheduleKey = RedisKeyGenerator.seatAccessByScheduleKey(userId, scheduleId);
+        boolean hadAccess = Boolean.TRUE.equals(redisTemplate.hasKey(accessKey));
+
+        redisTemplate.delete(accessKey);
+        redisTemplate.delete(accessByScheduleKey);
+
+        Long active = null;
+        if (hadAccess) {
+            String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
+            active = redisTemplate.opsForValue().decrement(activeKey);
+            if (active == null || active < 0) {
+                redisTemplate.opsForValue().set(activeKey, "0");
+                active = 0L;
+            }
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "status", "success",
+                "releasedSeatCount", releasedSeatCount,
+                "activeDecremented", hadAccess,
+                "activeCount", active == null ? -1L : active
+        ));
+    }
+
+    private Long resolveSeatId(SeatSelectRequest requestDto) {
+        Seat seat = seatRepository
+                .findByScheduleIdAndSectionAndRowNumberAndSeatNumber(
+                        requestDto.getScheduleId(),
+                        requestDto.getSection(),
+                        requestDto.getRowNumber(),
+                        requestDto.getSeatNumber()
+                )
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "좌석이 존재하지 않습니다. section=%s, row=%d, seat=%d".formatted(
+                                requestDto.getSection(),
+                                requestDto.getRowNumber(),
+                                requestDto.getSeatNumber()
+                        )
+                ));
+
+        return seat.getId();
+    }
+
     // 대기열에서 입장 허용된 사용자만 접근 가능한 엔드포인트
     @GetMapping("/seats")
     public ResponseEntity<?> enterSeat(
@@ -217,7 +287,7 @@ public class SeatController {
                 @RequestParam("scheduleId") Long scheduleId
         ) {
 
-        String key = "seat:entry:" + token;
+        String key = RedisKeyGenerator.seatEntryKey(token);
 
         String tokenPayload = redisTemplate.opsForValue().get(key);
 
@@ -255,9 +325,20 @@ public class SeatController {
         String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
         Long active = redisTemplate.opsForValue()
                 .increment(activeKey);
-                
-        System.out.println("ACTIVE 증가 → 현재 인원: " + active);
 
+        Long userId = Long.parseLong(parts[0]);
+        redisTemplate.opsForValue().set(
+                RedisKeyGenerator.seatAccessKey(userId, concertId, scheduleId),
+                "1",
+                Duration.ofMinutes(5)
+        );
+        redisTemplate.opsForValue().set(
+                RedisKeyGenerator.seatAccessByScheduleKey(userId, scheduleId),
+                String.valueOf(concertId),
+                Duration.ofMinutes(5)
+        );
+
+        System.out.println("ACTIVE 증가 → 현재 인원: " + active);
 
         return ResponseEntity.ok("좌석 선택 화면 입장 성공");
         }

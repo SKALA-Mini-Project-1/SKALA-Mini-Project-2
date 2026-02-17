@@ -14,28 +14,50 @@ public class ActiveSeatCleanupScheduler {
 
     @Scheduled(fixedDelay = 10000) // 10초마다 실행
     public void syncActiveCount() {
+        Set<String> activeKeys = redisTemplate.keys("seat:active:concert:*:schedule:*");
+        if (activeKeys == null || activeKeys.isEmpty()) {
+            return;
+        }
 
-        String concertId = "1";
+        for (String activeKey : activeKeys) {
+            Long concertId = parseLongBetween(activeKey, "seat:active:concert:", ":schedule:");
+            Long scheduleId = parseLongAfter(activeKey, ":schedule:");
+            if (concertId == null || scheduleId == null) {
+                continue;
+            }
 
-        // 현재 active 값
-        String activeStr = redisTemplate.opsForValue()
-                .get("seat:active:concert:" + concertId);
-
-        long active = activeStr == null ? 0 : Long.parseLong(activeStr);
-
-        // 실제 살아있는 entryToken 개수
-        Set<String> keys = redisTemplate.keys("seat:entry:*");
-
-        long realActive = keys == null ? 0 : keys.size();
-
-        if (active != realActive) {
-            redisTemplate.opsForValue().set(
-                    "seat:active:concert:" + concertId,
-                    String.valueOf(realActive)
+            Set<String> accessKeys = redisTemplate.keys(
+                    "seat:access:user:*:concert:" + concertId + ":schedule:" + scheduleId
             );
+            long realActive = accessKeys == null ? 0L : accessKeys.size();
+            redisTemplate.opsForValue().set(activeKey, String.valueOf(realActive));
+        }
+    }
 
-            System.out.println("ACTIVE 보정 → " + realActive);
+    private Long parseLongBetween(String value, String prefix, String suffix) {
+        int start = value.indexOf(prefix);
+        int end = value.indexOf(suffix);
+        if (start < 0 || end < 0 || end <= start) {
+            return null;
+        }
+        String raw = value.substring(start + prefix.length(), end);
+        try {
+            return Long.parseLong(raw);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Long parseLongAfter(String value, String token) {
+        int start = value.indexOf(token);
+        if (start < 0) {
+            return null;
+        }
+        String raw = value.substring(start + token.length());
+        try {
+            return Long.parseLong(raw);
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 }
-

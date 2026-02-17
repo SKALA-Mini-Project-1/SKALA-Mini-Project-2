@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ANONYMOUS, loadTossPayments } from '@tosspayments/tosspayments-sdk';
 import { Loader2 } from 'lucide-vue-next';
-import { computed, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { createPayment, submitPayment } from '../data/payments';
 import { getAuthUser, getToken } from '../services/auth';
+import { leaveSeatScreen } from '../services/seat';
 import type { BookingData } from '../types';
 
 const props = defineProps<{
@@ -12,6 +13,8 @@ const props = defineProps<{
 
 const isProcessing = ref(false);
 const paymentMethod = ref('card');
+const skipLeaveCleanup = ref(false);
+const hasSentLeave = ref(false);
 const agreements = reactive({
   all: false,
   terms: false,
@@ -23,6 +26,24 @@ const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 const totalAmount = computed(() => props.bookingData.seats.reduce((sum, seat) => sum + seat.price, 0));
+
+const leaveSeatOnExit = async () => {
+  if (skipLeaveCleanup.value || hasSentLeave.value) {
+    return;
+  }
+  const concertId = Number(props.bookingData.concertId);
+  const scheduleId = Number(props.bookingData.scheduleId);
+  if (!Number.isFinite(concertId) || !Number.isFinite(scheduleId)) {
+    return;
+  }
+
+  hasSentLeave.value = true;
+  try {
+    await leaveSeatScreen(concertId, scheduleId);
+  } catch (error) {
+    console.error('결제 화면 이탈 처리 실패', error);
+  }
+};
 
 const updateAllFlag = () => {
   agreements.all = agreements.terms && agreements.privacy && agreements.refund;
@@ -53,6 +74,7 @@ const handlePayment = async () => {
 
   try {
     isProcessing.value = true;
+    skipLeaveCleanup.value = true;
 
     const tossPayments = await loadTossPayments(clientKey);
     const authUser = getAuthUser();
@@ -118,6 +140,7 @@ const handlePayment = async () => {
         : undefined
     });
   } catch (error) {
+    skipLeaveCleanup.value = false;
     console.error('Toss Payments error:', error);
     const message = error instanceof Error ? error.message : '결제창을 여는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
     alert(message);
@@ -125,6 +148,17 @@ const handlePayment = async () => {
     isProcessing.value = false;
   }
 };
+
+onMounted(() => {
+  skipLeaveCleanup.value = false;
+  hasSentLeave.value = false;
+  window.addEventListener('pagehide', leaveSeatOnExit);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pagehide', leaveSeatOnExit);
+  void leaveSeatOnExit();
+});
 </script>
 
 <template>

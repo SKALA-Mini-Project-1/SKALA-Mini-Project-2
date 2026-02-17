@@ -4,11 +4,10 @@ import com.example.SKALA_Mini_Project_1.global.redis.RedisLockRepository;
 import com.example.SKALA_Mini_Project_1.modules.seats.domain.Seat;
 import com.example.SKALA_Mini_Project_1.modules.seats.domain.SeatStatus;
 import com.example.SKALA_Mini_Project_1.modules.seats.repository.SeatRepository;
-
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -16,19 +15,20 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class SeatReservationService {
-    private static final int MAX_HOLD_SEAT_COUNT = 4; // 1인 최대 4매 제한
+    private static final Logger log = LoggerFactory.getLogger(SeatReservationService.class);
+    private static final int MAX_HOLD_SEAT_COUNT = 4;
 
-    public enum SeatHoldResult { // 좌석 선점 상태
+    public enum SeatHoldResult {
         HELD,
         RELEASED
     }
 
-    public enum SeatReleaseResult { // 좌석 선점 취소 상태
+    public enum SeatReleaseResult {
         RELEASED,
         ALREADY_RELEASED
     }
@@ -38,17 +38,9 @@ public class SeatReservationService {
     private final SeatRepository seatRepository;
     private final RedisLockRepository redisLockRepository;
 
-    /*
-     * 좌석 선점 (임시 예약)
-     * 좌석 HOLD 상태는 Redis에만 저장하고, DB는 AVAILABLE/RESERVED만 유지합니다.
-     */
-    public SeatHoldResult reserveSeatTemporary(
-            Long concertId,
-            Long seatId,
-            Long userId
-    ) {
-        Seat seat = validateSeat(concertId, seatId);
-        Long scheduleId = seat.getScheduleId();
+    public SeatHoldResult reserveSeatTemporary(Long scheduleId, Long seatId, Long userId) {
+        Seat seat = validateSeat(scheduleId, seatId);
+        Long concertId = findConcertIdByScheduleId(scheduleId);
         if (seat.getStatus() == SeatStatus.RESERVED) {
             throw new IllegalStateException("이미 판매된 좌석입니다.");
         }
@@ -63,12 +55,6 @@ public class SeatReservationService {
         }
 
         if (currentOwner != null) {
-            log.info(
-                    "좌석 {} 선점 실패: 현재 소유자(userId: {}), 시도자(userId: {})",
-                    seatId,
-                    currentOwner,
-                    userId
-            );
             throw new IllegalStateException("이미 다른 사용자가 선택한 좌석입니다.");
         }
 
@@ -77,23 +63,8 @@ public class SeatReservationService {
             throw new IllegalArgumentException("좌석은 최대 4매까지만 선택할 수 있습니다.");
         }
 
-        // Redis를 통한 선점 시도 (HOLD는 Redis TTL로만 관리)
         boolean isLocked = redisLockRepository.lockSeat(concertId, scheduleId, seatId, userIdString);
-        
         if (!isLocked) {
-            String lockOwner = redisLockRepository.getSeatOwner(concertId, scheduleId, seatId);
-            if (Objects.equals(lockOwner, userIdString)) {
-                redisLockRepository.unlockSeat(concertId, scheduleId, seatId);
-                log.info("좌석 {} 선점 해제 성공 (사용자: {})", seatId, userId);
-                return SeatHoldResult.RELEASED;
-            }
-
-            log.info(
-                    "좌석 {} 선점 실패: 현재 소유자(userId: {}), 시도자(userId: {})",
-                    seatId,
-                    lockOwner,
-                    userId
-            );
             throw new IllegalStateException("이미 다른 사용자가 선택한 좌석입니다.");
         }
 
@@ -101,7 +72,6 @@ public class SeatReservationService {
         return SeatHoldResult.HELD;
     }
 
-    // 선점했던 좌석 일괄 선점 로직
     public BatchHoldResult holdSeatsBatch(Long concertId, List<Long> seatIds, Long userId) {
         if (seatIds == null || seatIds.isEmpty()) {
             throw new IllegalArgumentException("좌석 ID 목록은 비어 있을 수 없습니다.");
@@ -116,8 +86,7 @@ public class SeatReservationService {
         List<Seat> seats = new ArrayList<>();
         List<Long> failedSeatIds = new ArrayList<>();
         for (Long seatId : uniqueSeatIds) {
-            Seat seat = seatRepository.findByIdAndConcertId(seatId, concertId)
-                    .orElse(null);
+            Seat seat = seatRepository.findByIdAndConcertId(seatId, concertId).orElse(null);
             if (seat == null || seat.getStatus() == SeatStatus.RESERVED) {
                 failedSeatIds.add(seatId);
                 continue;
@@ -129,7 +98,7 @@ public class SeatReservationService {
             return new BatchHoldResult(false, List.of(), failedSeatIds);
         }
 
-        Set<Long> scheduleIds = seats.stream().map(Seat::getScheduleId).collect(java.util.stream.Collectors.toSet());
+        Set<Long> scheduleIds = seats.stream().map(Seat::getScheduleId).collect(Collectors.toSet());
         if (scheduleIds.size() != 1) {
             throw new IllegalArgumentException("서로 다른 회차의 좌석은 함께 선택할 수 없습니다.");
         }
@@ -138,14 +107,12 @@ public class SeatReservationService {
 
         List<Seat> seatsToLock = new ArrayList<>();
         List<Long> alreadyHeldByMe = new ArrayList<>();
-
         for (Seat seat : seats) {
             String owner = redisLockRepository.getSeatOwner(concertId, scheduleId, seat.getId());
             if (owner == null) {
                 seatsToLock.add(seat);
                 continue;
             }
-
             if (Objects.equals(owner, userIdString)) {
                 alreadyHeldByMe.add(seat.getId());
             } else {
@@ -163,25 +130,11 @@ public class SeatReservationService {
 
         List<Long> newlyLockedSeatIds = new ArrayList<>();
         for (Seat seat : seatsToLock) {
-            boolean locked = redisLockRepository.lockSeat(
-                    concertId,
-                    scheduleId,
-                    seat.getId(),
-                    userIdString
-            );
-
+            boolean locked = redisLockRepository.lockSeat(concertId, scheduleId, seat.getId(), userIdString);
             if (!locked) {
                 failedSeatIds.add(seat.getId());
                 for (Long lockedSeatId : newlyLockedSeatIds) {
-                    Seat lockedSeat = seatRepository.findById(lockedSeatId)
-                            .orElse(null);
-                    if (lockedSeat != null) {
-                        redisLockRepository.unlockSeat(
-                                concertId,
-                                scheduleId,
-                                lockedSeat.getId()
-                        );
-                    }
+                    redisLockRepository.unlockSeat(concertId, scheduleId, lockedSeatId);
                 }
                 return new BatchHoldResult(false, List.of(), failedSeatIds);
             }
@@ -193,14 +146,9 @@ public class SeatReservationService {
         return new BatchHoldResult(true, heldSeatIds, List.of());
     }
 
-    // 선점된 좌석 해제 로직
-    public SeatReleaseResult releaseSeatHold(
-            Long concertId,
-            Long seatId,
-            Long userId
-    ) {
-        Seat seat = validateSeat(concertId, seatId);
-        Long scheduleId = seat.getScheduleId();
+    public SeatReleaseResult releaseSeatHold(Long scheduleId, Long seatId, Long userId) {
+        validateSeat(scheduleId, seatId);
+        Long concertId = findConcertIdByScheduleId(scheduleId);
 
         String owner = redisLockRepository.getSeatOwner(concertId, scheduleId, seatId);
         if (owner == null) {
@@ -215,8 +163,18 @@ public class SeatReservationService {
         return SeatReleaseResult.RELEASED;
     }
 
-    private Seat validateSeat(Long concertId, Long seatId) {
-        return seatRepository.findByIdAndConcertId(seatId, concertId)
+    public int releaseAllSeatHolds(Long scheduleId, Long userId) {
+        Long concertId = findConcertIdByScheduleId(scheduleId);
+        return redisLockRepository.releaseUserHeldSeats(concertId, scheduleId, String.valueOf(userId));
+    }
+
+    private Seat validateSeat(Long scheduleId, Long seatId) {
+        return seatRepository.findByIdAndScheduleId(seatId, scheduleId)
                 .orElseThrow(() -> new EntityNotFoundException("좌석이 존재하지 않습니다. ID: " + seatId));
+    }
+
+    private Long findConcertIdByScheduleId(Long scheduleId) {
+        return seatRepository.findConcertIdByScheduleId(scheduleId)
+                .orElseThrow(() -> new EntityNotFoundException("스케줄이 존재하지 않습니다. ID: " + scheduleId));
     }
 }

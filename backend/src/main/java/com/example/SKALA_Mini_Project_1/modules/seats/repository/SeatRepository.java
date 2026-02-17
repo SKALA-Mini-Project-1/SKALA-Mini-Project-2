@@ -35,10 +35,10 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
                     JOIN schedules sc ON sc.id = s.schedule_id
                     WHERE sc.concert_id = :concertId
                     ORDER BY s.section, s.row_number, s.seat_number
-                    """,
+            """,
             nativeQuery = true
     )
-    List<Object[]> findSeatMapByConcertId(Long concertId);
+    List<Object[]> findSeatMapByConcertId(@Param("concertId") Long concertId);
 
     @Query(
             value = """
@@ -46,10 +46,20 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
                     FROM seats s
                     WHERE s.schedule_id = :scheduleId
                     ORDER BY s.section, s.row_number, s.seat_number
-                    """,
+            """,
             nativeQuery = true
     )
-    List<Object[]> findSeatMapByScheduleId(Long scheduleId);
+    List<Object[]> findSeatMapByScheduleId(@Param("scheduleId") Long scheduleId);
+
+    @Query(
+            value = """
+                    SELECT sc.concert_id
+                    FROM schedules sc
+                    WHERE sc.id = :scheduleId
+            """,
+            nativeQuery = true
+    )
+    Optional<Long> findConcertIdByScheduleId(@Param("scheduleId") Long scheduleId);
 
     @Query(
             value = """
@@ -58,10 +68,64 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
                     JOIN schedules sc ON sc.id = s.schedule_id
                     WHERE s.id = :seatId
                       AND sc.concert_id = :concertId
+            """,
+            nativeQuery = true
+    )
+    Optional<Seat> findByIdAndConcertId(
+            @Param("seatId") Long seatId,
+            @Param("concertId") Long concertId
+    );
+
+    @Query(
+            value = """
+                    SELECT s.*
+                    FROM seats s
+                    WHERE s.id = :seatId
+                      AND s.schedule_id = :scheduleId
+            """,
+            nativeQuery = true
+    )
+    Optional<Seat> findByIdAndScheduleId(
+            @Param("seatId") Long seatId,
+            @Param("scheduleId") Long scheduleId
+    );
+
+    @Query(
+            value = """
+                    SELECT s.*
+                    FROM seats s
+                    JOIN schedules sc ON sc.id = s.schedule_id
+                    WHERE sc.concert_id = :concertId
+                      AND s.section = :section
+                      AND s.row_number = :rowNumber
+                      AND s.seat_number = :seatNumber
                     """,
             nativeQuery = true
     )
-    Optional<Seat> findByIdAndConcertId(Long seatId, Long concertId);
+    Optional<Seat> findByConcertIdAndSectionAndRowNumberAndSeatNumber(
+            @Param("concertId") Long concertId,
+            @Param("section") String section,
+            @Param("rowNumber") Integer rowNumber,
+            @Param("seatNumber") Integer seatNumber
+    );
+
+    @Query(
+            value = """
+                    SELECT s.*
+                    FROM seats s
+                    WHERE s.schedule_id = :scheduleId
+                      AND s.section = :section
+                      AND s.row_number = :rowNumber
+                      AND s.seat_number = :seatNumber
+                    """,
+            nativeQuery = true
+    )
+    Optional<Seat> findByScheduleIdAndSectionAndRowNumberAndSeatNumber(
+            @Param("scheduleId") Long scheduleId,
+            @Param("section") String section,
+            @Param("rowNumber") Integer rowNumber,
+            @Param("seatNumber") Integer seatNumber
+    );
 
     @Query(
             value = """
@@ -89,7 +153,7 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
                     JOIN schedules sc ON sc.id = s.schedule_id
                     WHERE sc.concert_id = :concertId
                       AND s.id IN (:seatIds)
-                    """,
+            """,
             nativeQuery = true
     )
     List<SeatBookingView> findSeatBookingViews(Long concertId, List<Long> seatIds);

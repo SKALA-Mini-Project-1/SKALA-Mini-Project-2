@@ -19,6 +19,9 @@ public class SeatMapResponse {
     @Schema(description = "총 좌석 수", example = "14000")
     private int seatCount;
 
+    @Schema(description = "좌석 화면 접근 가능 남은 시간(초)", example = "300")
+    private Long seatAccessTtlSeconds;
+
     @Schema(description = "좌석 목록")
     private List<SeatItem> seats;
 

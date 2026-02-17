@@ -12,4 +12,20 @@ public class RedisKeyGenerator {
     public static String seatActiveKey(Long concertId, Long scheduleId) {
         return "seat:active:concert:" + concertId + ":schedule:" + scheduleId;
     }
+
+    public static String seatEntryKey(String entryToken) {
+        return "seat:entry:" + entryToken;
+    }
+
+    public static String seatAccessKey(Long userId, Long concertId, Long scheduleId) {
+        return "seat:access:user:" + userId + ":concert:" + concertId + ":schedule:" + scheduleId;
+    }
+
+    public static String seatAccessByScheduleKey(Long userId, Long scheduleId) {
+        return "seat:access:user:" + userId + ":schedule:" + scheduleId;
+    }
+
+    public static String queueHeartbeatKey(Long concertId, Long scheduleId, String userId) {
+        return "queue:heartbeat:concert:" + concertId + ":schedule:" + scheduleId + ":user:" + userId;
+    }
 }
