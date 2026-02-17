@@ -31,6 +31,7 @@ import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
 import com.example.SKALA_Mini_Project_1.modules.payments.client.TossConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingItemRepository;
 import com.example.SKALA_Mini_Project_1.modules.seats.repository.SeatRepository;
+import com.example.SKALA_Mini_Project_1.global.redis.RedisLockRepository;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateResponse;
@@ -63,6 +64,7 @@ public class PaymentService {
     private final SeatRepository seatRepository;
     private final RefundRepository refundRepository;
     private final PaymentEventRepository paymentEventRepository;
+    private final RedisLockRepository redisLockRepository;
     private final RedisTemplate<String, String> redisTemplate;
 
     private static final Map<PaymentStatus, Set<PaymentStatus>> transitionMap = new EnumMap<>(PaymentStatus.class);
@@ -489,13 +491,28 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         }
 
         Long scheduleId = booking.getScheduleId();
-        if (scheduleId != null) {
+        Long userId = booking.getUserId();
+        if (scheduleId != null && userId != null) {
             Long concertId = bookingRepository.findConcertIdByBookingId(payment.getBookingId())
                     .orElseThrow(() -> new IllegalStateException("Concert not found for booking: " + payment.getBookingId()));
-            String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
-            Long active = redisTemplate.opsForValue().decrement(activeKey);
-            if (active == null || active < 0) {
-                redisTemplate.opsForValue().set(activeKey, "0");
+
+            // 결제 확정 후에는 사용자 hold/access를 즉시 정리해 좌석 점유 잔존을 방지한다.
+            redisLockRepository.releaseUserHeldSeats(concertId, scheduleId, String.valueOf(userId));
+
+            String accessKey = RedisKeyGenerator.seatAccessKey(userId, concertId, scheduleId);
+            String accessByScheduleKey = RedisKeyGenerator.seatAccessByScheduleKey(userId, scheduleId);
+            boolean hadAccess = Boolean.TRUE.equals(redisTemplate.hasKey(accessKey))
+                    || Boolean.TRUE.equals(redisTemplate.hasKey(accessByScheduleKey));
+
+            redisTemplate.delete(accessKey);
+            redisTemplate.delete(accessByScheduleKey);
+
+            if (hadAccess) {
+                String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
+                Long active = redisTemplate.opsForValue().decrement(activeKey);
+                if (active == null || active < 0) {
+                    redisTemplate.opsForValue().set(activeKey, "0");
+                }
             }
         }
     }

@@ -15,6 +15,7 @@ const position = ref(0);
 const progress = ref(0);
 const isSurge = ref(false);
 const hasLeftQueue = ref(false);
+const API_BASE_URL = ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '').replace(/\/$/, '');
 
 let queueTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -43,7 +44,19 @@ const buildQueueUrl = (path: 'start' | 'status' | 'leave') => {
   if (scheduleIdValue.value !== null) {
     params.set('scheduleId', String(scheduleIdValue.value));
   }
-  return `http://localhost:10010/api/ticketing/${path}?${params.toString()}`;
+  return `${API_BASE_URL}/api/ticketing/${path}?${params.toString()}`;
+};
+
+const buildSeatEntryUrl = (entryToken: string) => {
+  const params = new URLSearchParams();
+  params.set('token', entryToken);
+  if (concertIdValue.value !== null) {
+    params.set('concertId', String(concertIdValue.value));
+  }
+  if (scheduleIdValue.value !== null) {
+    params.set('scheduleId', String(scheduleIdValue.value));
+  }
+  return `${API_BASE_URL}/api/seats/seats?${params.toString()}`;
 };
 
 async function leaveQueue() {
@@ -124,14 +137,11 @@ async function checkStatus() {
 
       const seatToken = localStorage.getItem("ticketkorea_access_token");
 
-      const seatRes = await fetch(
-        `http://localhost:8081/api/seats/seats?token=${encodeURIComponent(data.entryToken)}&concertId=${concertIdValue.value}&scheduleId=${scheduleIdValue.value}`,
-        {
-          headers: {
-            Authorization: `Bearer ${seatToken}`
-          }
+      const seatRes = await fetch(buildSeatEntryUrl(data.entryToken), {
+        headers: {
+          Authorization: `Bearer ${seatToken}`
         }
-      );
+      });
 
       if (seatRes.ok) {
         emit("queueComplete");
