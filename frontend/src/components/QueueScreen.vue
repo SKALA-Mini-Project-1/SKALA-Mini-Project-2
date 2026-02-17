@@ -17,24 +17,31 @@ const isSurge = ref(false);
 
 let queueTimer: ReturnType<typeof setInterval> | null = null;
 
-// 🔥 1️⃣ 대기열 진입
+// 1️⃣ 대기열 진입
 async function startQueue() {
-  const token = localStorage.getItem("accessToken");
+  const token = localStorage.getItem("ticketkorea_access_token");
 
-  await fetch("http://localhost:10010/api/ticketing/start", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`
-    },
-    body: JSON.stringify({ concertId })
-  });
+  console.log("START QUEUE CALLED");
+  console.log("TOKEN:", token);
+  console.log("CONCERT ID:", concertId);
+
+  const res = await fetch(
+    `http://localhost:10010/api/ticketing/start?concertId=${concertId}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    }
+  );
+
+  console.log("START RESPONSE STATUS:", res.status);
 }
 
-// 🔥 2️⃣ 상태 polling
+
 async function checkStatus() {
   try {
-    const token = localStorage.getItem("accessToken");
+    const token = localStorage.getItem("ticketkorea_access_token");
 
     const res = await fetch(
       `http://localhost:10010/api/ticketing/status?concertId=${concertId}`,
@@ -46,22 +53,28 @@ async function checkStatus() {
     );
 
     const data = await res.json();
+    console.log("status data:", data);
 
     if (data.enter) {
       if (queueTimer) clearInterval(queueTimer);
 
-      // 🔥 좌석 서버 입장
+      const seatToken = localStorage.getItem("ticketkorea_access_token");
+
       const seatRes = await fetch(
-        `http://localhost:8081/api/seats/seats?token=${data.entryToken}`
+        `http://localhost:8081/api/seats/seats?token=${data.entryToken}`,
+        {
+          headers: {
+            Authorization: `Bearer ${seatToken}`
+          }
+        }
       );
 
       if (seatRes.ok) {
         emit("queueComplete");
         router.push("/concert/seat");
       }
-
     } else {
-      position.value = data.rank;
+      position.value = data.rank ?? 0;
     }
 
   } catch (err) {
@@ -69,9 +82,10 @@ async function checkStatus() {
   }
 }
 
+
+
 onMounted(async () => {
   await startQueue(); // 🔥 반드시 먼저 진입
-
   queueTimer = setInterval(checkStatus, 1000);
 });
 
@@ -89,7 +103,6 @@ const aheadCount = computed(() =>
 </script>
 
 <template>
-  <h1 style="color:red">QUEUE SCREEN</h1>
   <div class="flex min-h-[600px] items-center justify-center bg-gray-50 p-3 sm:p-4">
     <div class="w-full max-w-md overflow-hidden rounded-sm border border-[#e0e0e0] bg-white shadow-xl">
       <div class="p-4 text-center font-bold text-white" :class="isSurge ? 'bg-[#E8000B]' : 'bg-[#333]'">
