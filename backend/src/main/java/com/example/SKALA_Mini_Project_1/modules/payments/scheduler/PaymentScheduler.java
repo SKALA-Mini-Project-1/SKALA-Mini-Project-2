@@ -2,8 +2,11 @@ package com.example.SKALA_Mini_Project_1.modules.payments.scheduler;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -34,12 +37,24 @@ public class PaymentScheduler {
     @Transactional
     public void expireTimedOutPayments() {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-        List<Payment> targets = paymentRepository.findTop200ByStatusInAndExpiredAtBeforeOrderByExpiredAtAsc(
+        List<Payment> byExpiredAt = paymentRepository.findTop200ByStatusInAndExpiredAtBeforeOrderByExpiredAtAsc(
                 Set.of(PaymentStatus.PENDING, PaymentStatus.PAYING),
                 now
         );
+        List<Payment> byHardDeadline = paymentRepository.findTop200ByStatusAndHardDeadlineAtBeforeOrderByHardDeadlineAtAsc(
+                PaymentStatus.PAYING,
+                now
+        );
 
-        for (Payment payment : targets) {
+        Map<UUID, Payment> deduped = new LinkedHashMap<>();
+        for (Payment payment : byExpiredAt) {
+            deduped.put(payment.getId(), payment);
+        }
+        for (Payment payment : byHardDeadline) {
+            deduped.put(payment.getId(), payment);
+        }
+
+        for (Payment payment : deduped.values()) {
             try {
                 String from = payment.getStatus().name();
                 payment.changeStatus(PaymentStatus.EXPIRED);

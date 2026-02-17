@@ -198,4 +198,19 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
             nativeQuery = true
     )
     int releaseSeatHoldsByBookingId(@Param("bookingId") UUID bookingId);
+
+    @Query(
+            value = """
+                    SELECT COUNT(*)
+                    FROM seats s
+                    JOIN booking_items bi ON bi.seat_id = s.id
+                    WHERE bi.booking_id = :bookingId
+                      AND s.status <> :expectedStatus
+                    """,
+            nativeQuery = true
+    )
+    long countSeatsNotInStatusByBookingId(
+            @Param("bookingId") UUID bookingId,
+            @Param("expectedStatus") String expectedStatus
+    );
 }

@@ -75,6 +75,9 @@ public class Payment {
     @Column(name = "submitted_at")
     private OffsetDateTime submittedAt;
 
+    @Column(name = "hard_deadline_at")
+    private OffsetDateTime hardDeadlineAt;
+
         @Column(name = "completed_at")
         private OffsetDateTime completedAt;
 
@@ -94,6 +97,9 @@ public class Payment {
 
         TRANSITION_MAP.put(PaymentStatus.EXPIRED,
                 Set.of(PaymentStatus.REFUND_REQUIRED));
+
+        TRANSITION_MAP.put(PaymentStatus.REFUND_REQUIRED,
+                Set.of(PaymentStatus.CANCELED, PaymentStatus.REFUNDED));
     }
 
     // ✅ 현재 상태에서 다음 상태로 전이가 가능한지 확인한다 (엔티티 내부)
