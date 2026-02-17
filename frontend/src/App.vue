@@ -28,7 +28,6 @@ const bookingData = reactive<BookingData>({
   bookingId: null,
   bookingNumber: null,
   concertId: null,
-  concertCode: null,
   scheduleId: null,
   concertTitle: null,
   concertVenue: null,
