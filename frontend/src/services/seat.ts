@@ -16,6 +16,11 @@ export interface SeatHoldResponse {
   message?: string;
 }
 
+export interface BatchSeatHoldResponse {
+  status?: string;
+  message?: string;
+}
+
 interface SeatMapResponse {
   concertId: number;
   seatCount: number;
@@ -47,6 +52,16 @@ export const holdSeat = async (scheduleId: number, section: string, rowNumber: n
   return apiRequest<SeatHoldResponse>(`/api/seats/hold`, {
     method: 'POST',
     body: JSON.stringify({ scheduleId, section, rowNumber, seatNumber }),
+    ...(token ? { token } : {})
+  });
+};
+
+export const holdSeatsBatch = async (concertId: number, seatIds: number[]) => {
+  const token = getToken();
+
+  return apiRequest<BatchSeatHoldResponse>(`/api/seats/holds`, {
+    method: 'POST',
+    body: JSON.stringify({ concertId, seatIds }),
     ...(token ? { token } : {})
   });
 };

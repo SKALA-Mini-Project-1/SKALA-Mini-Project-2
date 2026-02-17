@@ -2,11 +2,19 @@
 import { AlertCircle, X } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ApiError } from '../services/api';
-import { getSeatMap, getSeatMapBySchedule, holdSeat, leaveSeatScreen, type SeatMapItem } from '../services/seat';
+import { createBooking } from '../services/booking';
+import {
+  getSeatMap,
+  getSeatMapBySchedule,
+  holdSeat,
+  holdSeatsBatch,
+  leaveSeatScreen,
+  type SeatMapItem
+} from '../services/seat';
 import type { Seat } from '../types';
 
 const emit = defineEmits<{
-  complete: [seats: Seat[]];
+  complete: [payload: { seats: Seat[]; bookingId: string }];
 }>();
 
 type SectionMeta = {
@@ -37,6 +45,7 @@ const showExpiryWarningModal = ref(false);
 const hasShownExpiryWarning = ref(false);
 const holdingSeatMap = ref<Record<string, boolean>>({});
 const seatStatusMap = ref<Record<string, string>>({});
+const seatIdMap = ref<Record<string, number>>({});
 const shouldSkipLeaveOnUnmount = ref(false);
 const hasSentLeave = ref(false);
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -203,13 +212,16 @@ const loadSeatMap = async () => {
       ? await getSeatMapBySchedule(scheduleId.value)
       : await getSeatMap(concertId.value);
     const nextStatusMap: Record<string, string> = {};
+    const nextSeatIdMap: Record<string, number> = {};
 
     response.seats.forEach((seat: SeatMapItem) => {
       const key = buildSeatKey(seat.section, seat.rowNumber, seat.seatNumber);
       nextStatusMap[key] = seat.status;
+      nextSeatIdMap[key] = seat.seatId;
     });
 
     seatStatusMap.value = nextStatusMap;
+    seatIdMap.value = nextSeatIdMap;
 
     const serverTtl = Math.floor(Number(response.seatAccessTtlSeconds ?? 0));
     if (Number.isFinite(serverTtl) && serverTtl > 0) {
@@ -411,9 +423,37 @@ const gradeLegend = computed(() => {
 
 const totalVenueSeats = computed(() => sections.reduce((sum, section) => sum + section.totalSeats, 0));
 
-const completeSeatSelection = () => {
-  shouldSkipLeaveOnUnmount.value = true;
-  emit('complete', selectedSeats.value);
+const completeSeatSelection = async () => {
+  if (selectedSeats.value.length === 0) {
+    return;
+  }
+
+  if (!concertId.value) {
+    alert('공연 정보가 없어 예매를 진행할 수 없습니다.');
+    return;
+  }
+
+  const seatIds = selectedSeats.value
+    .map((seat) => seatIdMap.value[buildSeatKey(seat.section ?? '', seat.row, seat.col)])
+    .filter((seatId): seatId is number => Number.isFinite(seatId));
+
+  if (seatIds.length !== selectedSeats.value.length) {
+    alert('좌석 식별 정보를 찾지 못했습니다. 잠시 후 다시 시도해주세요.');
+    return;
+  }
+
+  try {
+    await holdSeatsBatch(concertId.value, seatIds);
+    const booking = await createBooking(concertId.value, seatIds);
+
+    shouldSkipLeaveOnUnmount.value = true;
+    emit('complete', {
+      seats: selectedSeats.value,
+      bookingId: booking.bookingId
+    });
+  } catch (error) {
+    alert(error instanceof Error ? error.message : '예매 생성 중 오류가 발생했습니다.');
+  }
 };
 </script>
 

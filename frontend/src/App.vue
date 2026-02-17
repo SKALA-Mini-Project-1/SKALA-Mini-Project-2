@@ -25,7 +25,10 @@ import { fetchConcerts } from './services/concerts'
 import type { ConcertItem } from './types'
 
 const bookingData = reactive<BookingData>({
+  bookingId: null,
+  bookingNumber: null,
   concertId: null,
+  concertCode: null,
   scheduleId: null,
   concertTitle: null,
   concertVenue: null,
@@ -170,6 +173,8 @@ const handleBookingStart = (date: string, session: string) => {
   bookingData.concertVenue = concertVenue
   bookingData.date = date
   bookingData.session = session
+  bookingData.bookingId = null
+  bookingData.bookingNumber = null
   bookingData.seats = []
   navigate('/concert/queue')
 }
@@ -178,8 +183,9 @@ const handleQueueComplete = () => {
   navigate('/concert/seat')
 }
 
-const handleSeatComplete = (seats: Seat[]) => {
-  bookingData.seats = seats
+const handleSeatComplete = (payload: { seats: Seat[]; bookingId: string }) => {
+  bookingData.seats = payload.seats
+  bookingData.bookingId = payload.bookingId
   navigate('/concert/payment')
 }
 
