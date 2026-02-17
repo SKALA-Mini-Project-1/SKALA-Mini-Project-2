@@ -24,8 +24,8 @@ public class QueueController {
 
     @PostMapping("/start")
         public ResponseEntity<?> startTicketing(
-                @RequestParam Long concertId,
-                @RequestParam Long scheduleId,
+                @RequestParam("concertId") Long concertId,
+                @RequestParam("scheduleId") Long scheduleId,
                 Authentication authentication
         ) {
 
@@ -38,8 +38,8 @@ public class QueueController {
 
      @GetMapping("/status")
         public QueueStatusResponse getStatus(
-                @RequestParam Long concertId,
-                @RequestParam Long scheduleId,
+                @RequestParam("concertId") Long concertId,
+                @RequestParam("scheduleId") Long scheduleId,
                 Authentication authentication
         ) {
         Long userId = (Long) authentication.getPrincipal();
@@ -48,8 +48,8 @@ public class QueueController {
 
     @PostMapping("/leave")
     public ResponseEntity<?> leaveQueue(
-            @RequestParam Long concertId,
-            @RequestParam Long scheduleId,
+            @RequestParam("concertId") Long concertId,
+            @RequestParam("scheduleId") Long scheduleId,
             Authentication authentication
     ) {
         Long userId = (Long) authentication.getPrincipal();

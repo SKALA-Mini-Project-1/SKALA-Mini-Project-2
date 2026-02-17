@@ -46,6 +46,7 @@ const hasShownExpiryWarning = ref(false);
 const holdingSeatMap = ref<Record<string, boolean>>({});
 const seatStatusMap = ref<Record<string, string>>({});
 const seatIdMap = ref<Record<string, number>>({});
+const isSeatMapLoading = ref(false);
 const shouldSkipLeaveOnUnmount = ref(false);
 const hasSentLeave = ref(false);
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -209,6 +210,7 @@ const formatTime = (seconds: number) => {
 const buildSeatKey = (section: string, row: number, col: number) => `${section}-${row}-${col}`;
 
 const loadSeatMap = async () => {
+  isSeatMapLoading.value = true;
   try {
     const response = scheduleId.value
       ? await getSeatMapBySchedule(scheduleId.value)
@@ -232,8 +234,18 @@ const loadSeatMap = async () => {
       hasShownExpiryWarning.value = false;
       showExpiryWarningModal.value = false;
     }
+
+    console.debug('[SeatSelection] seat map loaded', {
+      concertId: concertId.value,
+      scheduleId: scheduleId.value,
+      seatResponseCount: response.seats.length,
+      statusKeyCount: Object.keys(nextStatusMap).length,
+      seatIdKeyCount: Object.keys(nextSeatIdMap).length
+    });
   } catch (error) {
     console.error('좌석 상태 조회 실패', error);
+  } finally {
+    isSeatMapLoading.value = false;
   }
 };
 
@@ -426,6 +438,10 @@ const gradeLegend = computed(() => {
 const totalVenueSeats = computed(() => sections.reduce((sum, section) => sum + section.totalSeats, 0));
 
 const completeSeatSelection = async () => {
+  if (isSeatMapLoading.value) {
+    return;
+  }
+
   if (selectedSeats.value.length === 0) {
     return;
   }
@@ -435,11 +451,36 @@ const completeSeatSelection = async () => {
     return;
   }
 
-  const seatIds = selectedSeats.value
-    .map((seat) => seatIdMap.value[buildSeatKey(seat.section ?? '', seat.row, seat.col)])
+  const resolvedSeatMappings = selectedSeats.value.map((seat) => {
+    const key = buildSeatKey(seat.section ?? '', seat.row, seat.col);
+    const resolvedSeatId = seatIdMap.value[key];
+    return {
+      key,
+      resolvedSeatId,
+      seat
+    };
+  });
+
+  const seatIds = resolvedSeatMappings
+    .map((item) => item.resolvedSeatId)
     .filter((seatId): seatId is number => Number.isFinite(seatId));
 
+  const missingMappings = resolvedSeatMappings.filter((item) => !Number.isFinite(item.resolvedSeatId));
+
+  console.debug('[SeatSelection] complete selection mapping result', {
+    selectedSeatCount: selectedSeats.value.length,
+    mappedSeatIdCount: seatIds.length,
+    selectedSeatKeys: resolvedSeatMappings.map((item) => item.key),
+    missingSeatKeys: missingMappings.map((item) => item.key),
+    sampleSeatIdEntries: Object.entries(seatIdMap.value).slice(0, 20)
+  });
+
   if (seatIds.length !== selectedSeats.value.length) {
+    console.error('[SeatSelection] seatId mapping failed', {
+      concertId: concertId.value,
+      scheduleId: scheduleId.value,
+      missingMappings
+    });
     alert('좌석 식별 정보를 찾지 못했습니다. 잠시 후 다시 시도해주세요.');
     return;
   }
@@ -581,11 +622,11 @@ const completeSeatSelection = async () => {
           <div class="mb-4 flex items-center justify-between"><span class="text-sm font-bold text-slate-800">총 결제금액</span><span class="text-xl font-bold text-[#f97316]">{{ totalAmount.toLocaleString() }}원</span></div>
           <button
             class="w-full rounded py-4 text-lg font-bold transition-all"
-            :class="selectedSeats.length > 0 ? 'bg-[#f97316] text-white shadow-md hover:bg-[#ea580c]' : 'cursor-not-allowed bg-slate-200 text-slate-500'"
-            :disabled="selectedSeats.length === 0"
+            :class="selectedSeats.length > 0 && !isSeatMapLoading ? 'bg-[#f97316] text-white shadow-md hover:bg-[#ea580c]' : 'cursor-not-allowed bg-slate-200 text-slate-500'"
+            :disabled="selectedSeats.length === 0 || isSeatMapLoading"
             @click="completeSeatSelection"
           >
-            좌석선택 완료
+            {{ isSeatMapLoading ? '좌석 정보 로딩 중...' : '좌석선택 완료' }}
           </button>
         </div>
       </div>
