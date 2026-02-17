@@ -37,10 +37,17 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
     List<Payment> findTop50ByStatusOrderByUpdatedAtDesc(PaymentStatus status);
     List<Payment> findTop50ByUserIdAndStatusOrderByUpdatedAtDesc(Long userId, PaymentStatus status);
+    List<Payment> findTop100ByUserIdOrderByUpdatedAtDesc(Long userId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<Payment> findTop200ByStatusInAndExpiredAtBeforeOrderByExpiredAtAsc(
             Collection<PaymentStatus> statuses,
+            OffsetDateTime now
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    List<Payment> findTop200ByStatusAndHardDeadlineAtBeforeOrderByHardDeadlineAtAsc(
+            PaymentStatus status,
             OffsetDateTime now
     );
 }

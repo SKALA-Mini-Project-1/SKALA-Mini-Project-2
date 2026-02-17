@@ -7,6 +7,7 @@ import com.example.SKALA_Mini_Project_1.modules.payments.domain.PaymentEvent;
 
 public interface PaymentEventRepository extends JpaRepository<PaymentEvent, Long> {
     long countByEventType(String eventType);
+    boolean existsByPaymentIdAndEventTypeAndPgEventId(java.util.UUID paymentId, String eventType, String pgEventId);
 
     @Query(
             value = """
@@ -18,4 +19,3 @@ public interface PaymentEventRepository extends JpaRepository<PaymentEvent, Long
     )
     long countDuplicateDoneWebhookEvents();
 }
-
