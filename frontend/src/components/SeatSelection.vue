@@ -27,15 +27,23 @@ const props = defineProps<{
   scheduleId: string | null;
 }>();
 
-const timeLeft = ref(420);
+const DEFAULT_SEAT_ACCESS_TTL_SECONDS = 300;
+const timeLeft = ref(DEFAULT_SEAT_ACCESS_TTL_SECONDS);
+const initialTimeLeft = ref(DEFAULT_SEAT_ACCESS_TTL_SECONDS);
 const selectedSection = ref<SectionMeta | null>(null);
 const selectedSeats = ref<Seat[]>([]);
 const showConflictModal = ref(false);
+const showExpiryWarningModal = ref(false);
+const hasShownExpiryWarning = ref(false);
 const holdingSeatMap = ref<Record<string, boolean>>({});
 const seatStatusMap = ref<Record<string, string>>({});
 let timer: ReturnType<typeof setInterval> | null = null;
 const concertId = computed(() => Number(props.concertId ?? 1));
 const scheduleId = computed(() => (props.scheduleId ? Number(props.scheduleId) : null));
+
+const redirectToMain = () => {
+  window.location.href = 'http://localhost:5173/main';
+};
 
 const centerX = 50;
 const centerY = 28;
@@ -133,8 +141,20 @@ const toneClassMap: Record<SectionMeta['tone'], string> = {
 onMounted(() => {
   timer = setInterval(() => {
     if (timeLeft.value <= 0) {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+      alert("좌석 선택 시간이 만료되어 메인 화면으로 이동합니다.");
+      redirectToMain();
       return;
     }
+
+    if (timeLeft.value <= 30 && !hasShownExpiryWarning.value) {
+      hasShownExpiryWarning.value = true;
+      showExpiryWarningModal.value = true;
+    }
+
     timeLeft.value -= 1;
   }, 1000);
 
@@ -168,12 +188,23 @@ const loadSeatMap = async () => {
     });
 
     seatStatusMap.value = nextStatusMap;
+
+    const serverTtl = Math.floor(Number(response.seatAccessTtlSeconds ?? 0));
+    if (Number.isFinite(serverTtl) && serverTtl > 0) {
+      initialTimeLeft.value = serverTtl;
+      timeLeft.value = serverTtl;
+      hasShownExpiryWarning.value = false;
+      showExpiryWarningModal.value = false;
+    }
   } catch (error) {
     console.error('좌석 상태 조회 실패', error);
   }
 };
 
-const progressWidth = computed(() => `${(timeLeft.value / 420) * 100}%`);
+const progressWidth = computed(() => {
+  const base = Math.max(1, initialTimeLeft.value);
+  return `${(timeLeft.value / base) * 100}%`;
+});
 const totalAmount = computed(() => selectedSeats.value.reduce((sum, seat) => sum + seat.price, 0));
 
 const currentSectionSeats = computed(() => {
@@ -224,6 +255,17 @@ const setHolding = (seatId: string, isHolding: boolean) => {
 
 const isHoldingSeat = (seatId: string) => Boolean(holdingSeatMap.value[seatId]);
 
+const removeSelectedSeatById = (seatId: string) => {
+  selectedSeats.value = selectedSeats.value.filter((seat) => seat.id !== seatId);
+};
+
+const addSelectedSeat = (seat: Seat) => {
+  if (selectedSeats.value.some((item) => item.id === seat.id)) {
+    return;
+  }
+  selectedSeats.value = [...selectedSeats.value, seat];
+};
+
 const goToSection = (section: SectionMeta) => {
   selectedSection.value = section;
 };
@@ -248,7 +290,7 @@ const toggleSeat = async (row: number, col: number) => {
     return;
   }
 
-  const exists = selectedSeats.value.find((seat) => seat.id === seatId);
+  const exists = selectedSeats.value.some((seat) => seat.id === seatId);
 
   if (!exists && selectedSeats.value.length >= 4) {
     alert('최대 4매까지만 선택 가능합니다.');
@@ -263,7 +305,25 @@ const toggleSeat = async (row: number, col: number) => {
       return;
     }
 
-    await holdSeat(scheduleId.value, selectedSection.value.id, row, col);
+    const response = await holdSeat(scheduleId.value, selectedSection.value.id, row, col);
+    const action = response?.action;
+
+    if (action === 'released') {
+      removeSelectedSeatById(seatId);
+      return;
+    }
+
+    if (action === 'held') {
+      addSelectedSeat({
+        id: seatId,
+        section: selectedSection.value.id,
+        row,
+        col,
+        price: selectedSection.value.price,
+        grade: selectedSection.value.grade
+      });
+      return;
+    }
   } catch (error) {
     if (error instanceof ApiError && error.status === 409) {
       showConflictModal.value = true;
@@ -277,24 +337,38 @@ const toggleSeat = async (row: number, col: number) => {
   }
 
   if (exists) {
-    selectedSeats.value = selectedSeats.value.filter((seat) => seat.id !== seatId);
+    removeSelectedSeatById(seatId);
   } else {
-    selectedSeats.value = [
-      ...selectedSeats.value,
-      {
-        id: props.scheduleId ? `${props.scheduleId}-${seatId}` : seatId,
-        section: selectedSection.value.id,
-        row,
-        col,
-        price: selectedSection.value.price,
-        grade: selectedSection.value.grade
-      }
-    ];
+    addSelectedSeat({
+      id: seatId,
+      section: selectedSection.value.id,
+      row,
+      col,
+      price: selectedSection.value.price,
+      grade: selectedSection.value.grade
+    });
   }
 };
 
-const removeSeat = (seat: Seat) => {
-  selectedSeats.value = selectedSeats.value.filter((item) => item.id !== seat.id);
+const removeSeat = async (seat: Seat) => {
+  if (!scheduleId.value || !seat.section) {
+    removeSelectedSeatById(seat.id);
+    return;
+  }
+
+  if (isHoldingSeat(seat.id)) {
+    return;
+  }
+
+  setHolding(seat.id, true);
+  try {
+    await holdSeat(scheduleId.value, seat.section, seat.row, seat.col);
+  } catch (error) {
+    alert(error instanceof Error ? error.message : '좌석 해제 요청 중 오류가 발생했습니다.');
+  } finally {
+    removeSelectedSeatById(seat.id);
+    setHolding(seat.id, false);
+  }
 };
 
 const gradeLegend = computed(() => {
@@ -445,6 +519,20 @@ const totalVenueSeats = computed(() => sections.reduce((sum, section) => sum + s
             좌석선택 완료
           </button>
         </div>
+      </div>
+    </div>
+    <div v-if="showExpiryWarningModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div class="w-full max-w-sm rounded bg-white p-6 text-center shadow-2xl">
+        <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-100">
+          <AlertCircle class="text-amber-600" :size="24" />
+        </div>
+        <h3 class="mb-2 text-lg font-bold">좌석 선택 시간이 곧 만료됩니다.</h3>
+        <p class="mb-6 text-sm text-slate-600">
+          30초 후 좌석 선택이 종료됩니다.
+          <br />
+          결제를 진행하거나 좌석을 확인해주세요.
+        </p>
+        <button class="w-full rounded bg-amber-600 py-3 font-bold text-white hover:bg-amber-700" @click="showExpiryWarningModal = false">확인</button>
       </div>
     </div>
 
