@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -31,11 +32,14 @@ public class ConcertSeatController {
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "401", description = "인증 필요")
     })
-    public ResponseEntity<SeatMapResponse> getSeatMap(@PathVariable Long concertId) {
+    public ResponseEntity<SeatMapResponse> getSeatMap(
+            @PathVariable Long concertId,
+            @RequestParam Long scheduleId
+    ) {
         Long userId = (Long) SecurityContextHolder.getContext()
                 .getAuthentication()
                 .getPrincipal();
 
-        return ResponseEntity.ok(seatMapService.getSeatMap(concertId, userId));
+        return ResponseEntity.ok(seatMapService.getSeatMap(concertId, scheduleId, userId));
     }
 }

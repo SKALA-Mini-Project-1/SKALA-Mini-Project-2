@@ -10,6 +10,8 @@ interface ConcertScheduleApi {
 
 interface ConcertApi {
   id: number;
+  concertCode?: string | null;
+  code?: string | null;
   title: string;
   category: string;
   description: string;
@@ -91,6 +93,7 @@ const mapConcert = (concert: ConcertApi, index: number): ConcertItem => {
   const images = IMAGE_SET[index % IMAGE_SET.length];
   return {
     id: String(concert.id),
+    concertCode: concert.concertCode ?? concert.code ?? String(concert.id),
     title: concert.title,
     subtitle: concert.artistName ?? concert.category,
     artist: concert.artistName ?? 'Various Artists',

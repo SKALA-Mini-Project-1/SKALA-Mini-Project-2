@@ -48,15 +48,16 @@ public class SeatReservationService {
             Long userId
     ) {
         Seat seat = validateSeat(concertId, seatId);
+        Long scheduleId = seat.getScheduleId();
         if (seat.getStatus() == SeatStatus.RESERVED) {
             throw new IllegalStateException("이미 판매된 좌석입니다.");
         }
 
         String userIdString = String.valueOf(userId);
-        String currentOwner = redisLockRepository.getSeatOwner(concertId, seatId);
+        String currentOwner = redisLockRepository.getSeatOwner(concertId, scheduleId, seatId);
 
         if (Objects.equals(currentOwner, userIdString)) {
-            redisLockRepository.unlockSeat(concertId, seatId);
+            redisLockRepository.unlockSeat(concertId, scheduleId, seatId);
             log.info("좌석 {} 선점 해제 성공 (사용자: {})", seatId, userId);
             return SeatHoldResult.RELEASED;
         }
@@ -71,18 +72,18 @@ public class SeatReservationService {
             throw new IllegalStateException("이미 다른 사용자가 선택한 좌석입니다.");
         }
 
-        int currentHoldCount = redisLockRepository.countUserHeldSeats(concertId, userIdString);
+        int currentHoldCount = redisLockRepository.countUserHeldSeats(concertId, scheduleId, userIdString);
         if (currentHoldCount >= MAX_HOLD_SEAT_COUNT) {
             throw new IllegalArgumentException("좌석은 최대 4매까지만 선택할 수 있습니다.");
         }
 
         // Redis를 통한 선점 시도 (HOLD는 Redis TTL로만 관리)
-        boolean isLocked = redisLockRepository.lockSeat(concertId, seatId, userIdString);
+        boolean isLocked = redisLockRepository.lockSeat(concertId, scheduleId, seatId, userIdString);
         
         if (!isLocked) {
-            String lockOwner = redisLockRepository.getSeatOwner(concertId, seatId);
+            String lockOwner = redisLockRepository.getSeatOwner(concertId, scheduleId, seatId);
             if (Objects.equals(lockOwner, userIdString)) {
-                redisLockRepository.unlockSeat(concertId, seatId);
+                redisLockRepository.unlockSeat(concertId, scheduleId, seatId);
                 log.info("좌석 {} 선점 해제 성공 (사용자: {})", seatId, userId);
                 return SeatHoldResult.RELEASED;
             }
@@ -112,31 +113,43 @@ public class SeatReservationService {
         }
 
         String userIdString = String.valueOf(userId);
-        int currentHoldCount = redisLockRepository.countUserHeldSeats(concertId, userIdString);
-
+        List<Seat> seats = new ArrayList<>();
         List<Long> failedSeatIds = new ArrayList<>();
-        List<Seat> seatsToLock = new ArrayList<>();
-        List<Long> alreadyHeldByMe = new ArrayList<>();
-
         for (Long seatId : uniqueSeatIds) {
             Seat seat = seatRepository.findByIdAndConcertId(seatId, concertId)
                     .orElse(null);
-
             if (seat == null || seat.getStatus() == SeatStatus.RESERVED) {
                 failedSeatIds.add(seatId);
                 continue;
             }
+            seats.add(seat);
+        }
 
-            String owner = redisLockRepository.getSeatOwner(concertId, seat.getId());
+        if (!failedSeatIds.isEmpty()) {
+            return new BatchHoldResult(false, List.of(), failedSeatIds);
+        }
+
+        Set<Long> scheduleIds = seats.stream().map(Seat::getScheduleId).collect(java.util.stream.Collectors.toSet());
+        if (scheduleIds.size() != 1) {
+            throw new IllegalArgumentException("서로 다른 회차의 좌석은 함께 선택할 수 없습니다.");
+        }
+        Long scheduleId = scheduleIds.iterator().next();
+        int currentHoldCount = redisLockRepository.countUserHeldSeats(concertId, scheduleId, userIdString);
+
+        List<Seat> seatsToLock = new ArrayList<>();
+        List<Long> alreadyHeldByMe = new ArrayList<>();
+
+        for (Seat seat : seats) {
+            String owner = redisLockRepository.getSeatOwner(concertId, scheduleId, seat.getId());
             if (owner == null) {
                 seatsToLock.add(seat);
                 continue;
             }
 
             if (Objects.equals(owner, userIdString)) {
-                alreadyHeldByMe.add(seatId);
+                alreadyHeldByMe.add(seat.getId());
             } else {
-                failedSeatIds.add(seatId);
+                failedSeatIds.add(seat.getId());
             }
         }
 
@@ -152,6 +165,7 @@ public class SeatReservationService {
         for (Seat seat : seatsToLock) {
             boolean locked = redisLockRepository.lockSeat(
                     concertId,
+                    scheduleId,
                     seat.getId(),
                     userIdString
             );
@@ -164,6 +178,7 @@ public class SeatReservationService {
                     if (lockedSeat != null) {
                         redisLockRepository.unlockSeat(
                                 concertId,
+                                scheduleId,
                                 lockedSeat.getId()
                         );
                     }
@@ -184,9 +199,10 @@ public class SeatReservationService {
             Long seatId,
             Long userId
     ) {
-        validateSeat(concertId, seatId);
+        Seat seat = validateSeat(concertId, seatId);
+        Long scheduleId = seat.getScheduleId();
 
-        String owner = redisLockRepository.getSeatOwner(concertId, seatId);
+        String owner = redisLockRepository.getSeatOwner(concertId, scheduleId, seatId);
         if (owner == null) {
             return SeatReleaseResult.ALREADY_RELEASED;
         }
@@ -195,7 +211,7 @@ public class SeatReservationService {
             throw new IllegalStateException("다른 사용자가 선점한 좌석은 해제할 수 없습니다.");
         }
 
-        redisLockRepository.unlockSeat(concertId, seatId);
+        redisLockRepository.unlockSeat(concertId, scheduleId, seatId);
         return SeatReleaseResult.RELEASED;
     }
 

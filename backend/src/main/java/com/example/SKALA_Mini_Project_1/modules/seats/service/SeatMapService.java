@@ -19,11 +19,11 @@ public class SeatMapService {
     private final SeatRepository seatRepository;
     private final RedisLockRepository redisLockRepository;
 
-    public SeatMapResponse getSeatMap(Long concertId, Long userId) {
-        List<Object[]> rows = seatRepository.findSeatMapByConcertId(concertId);
+    public SeatMapResponse getSeatMap(Long concertId, Long scheduleId, Long userId) {
+        List<Object[]> rows = seatRepository.findSeatMapByScheduleId(scheduleId);
 
         List<SeatMapResponse.SeatItem> seats = rows.stream()
-                .map(row -> mapToSeatItem(concertId, userId, row))
+                .map(row -> mapToSeatItem(concertId, scheduleId, userId, row))
                 .toList();
 
         return SeatMapResponse.builder()
@@ -33,7 +33,7 @@ public class SeatMapService {
                 .build();
     }
 
-    private SeatMapResponse.SeatItem mapToSeatItem(Long concertId, Long userId, Object[] row) {
+    private SeatMapResponse.SeatItem mapToSeatItem(Long concertId, Long scheduleId, Long userId, Object[] row) {
         Long seatId = ((Number) row[0]).longValue();
         String section = (String) row[1];
         Integer rowNumber = ((Number) row[2]).intValue();
@@ -43,8 +43,8 @@ public class SeatMapService {
         BigDecimal price = (BigDecimal) row[6];
 
         // Redis에 캐싱된 사용자 정보를 가져옴
-        String owner = redisLockRepository.getSeatOwner(concertId, seatId);
-        Long ttlSeconds = redisLockRepository.getSeatLockTtlSeconds(concertId, seatId);
+        String owner = redisLockRepository.getSeatOwner(concertId, scheduleId, seatId);
+        Long ttlSeconds = redisLockRepository.getSeatLockTtlSeconds(concertId, scheduleId, seatId);
 
         Boolean isHeldByMe = null;
         OffsetDateTime holdExpiresAt = null;

@@ -26,6 +26,7 @@ import type { ConcertItem } from './types'
 
 const bookingData = reactive<BookingData>({
   concertId: null,
+  concertCode: null,
   scheduleId: null,
   concertTitle: null,
   concertVenue: null,
@@ -165,6 +166,7 @@ const handleBookingStart = (date: string, session: string) => {
   }
 
   bookingData.concertId = selectedConcert.value.id
+  bookingData.concertCode = selectedConcert.value.concertCode ?? selectedConcert.value.id
   bookingData.scheduleId = session
   bookingData.concertTitle = concertTitle
   bookingData.concertVenue = concertVenue
@@ -212,6 +214,7 @@ const handleLoggedIn = () => {
 
   if (pendingBooking.value) {
     bookingData.concertId = pendingBooking.value.concertId
+    bookingData.concertCode = selectedConcert.value?.concertCode ?? pendingBooking.value.concertId
     bookingData.scheduleId = pendingBooking.value.session
     bookingData.concertTitle = pendingBooking.value.concertTitle
     bookingData.concertVenue = pendingBooking.value.concertVenue
@@ -322,6 +325,7 @@ onUnmounted(() => {
       <QueueScreen
         v-else-if="normalizedPath === '/concert/queue'"
         :concert-id="bookingData.concertId"
+        :concert-code="bookingData.concertCode"
         :schedule-id="bookingData.scheduleId"
         @queue-complete="handleQueueComplete"
       />

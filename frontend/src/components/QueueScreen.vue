@@ -8,6 +8,7 @@ const emit = defineEmits<{
 
 const props = defineProps<{
   concertId: string | null;
+  concertCode: string | null;
   scheduleId: string | null;
 }>();
 
@@ -25,6 +26,17 @@ const concertIdValue = computed(() => {
   return Number.isNaN(parsed) ? null : parsed;
 });
 
+const concertCodeValue = computed(() => {
+  if (props.concertCode && props.concertCode.trim().length > 0) {
+    return props.concertCode.trim();
+  }
+  if (props.concertId) {
+    return props.concertId;
+  }
+  return null;
+});
+
+const canStartQueue = computed(() => concertCodeValue.value !== null && concertIdValue.value !== null);
 const scheduleIdValue = computed(() => {
   if (!props.scheduleId) {
     return null;
@@ -33,12 +45,10 @@ const scheduleIdValue = computed(() => {
   return Number.isNaN(parsed) ? null : parsed;
 });
 
-const canStartQueue = computed(() => concertIdValue.value !== null && scheduleIdValue.value !== null);
-
 const buildQueueUrl = (path: 'start' | 'status') => {
   const params = new URLSearchParams();
-  if (concertIdValue.value !== null) {
-    params.set('concertId', String(concertIdValue.value));
+  if (concertCodeValue.value) {
+    params.set('concertCode', concertCodeValue.value);
   }
   if (scheduleIdValue.value !== null) {
     params.set('scheduleId', String(scheduleIdValue.value));
@@ -48,8 +58,8 @@ const buildQueueUrl = (path: 'start' | 'status') => {
 
 // 1️⃣ 대기열 진입
 async function startQueue() {
-  if (!canStartQueue.value) {
-    console.error('대기열 진입 실패: concertId가 없습니다.');
+  if (!canStartQueue.value || scheduleIdValue.value === null) {
+    console.error('대기열 진입 실패: concertCode, concertId 또는 scheduleId가 없습니다.');
     return;
   }
 
@@ -58,7 +68,8 @@ async function startQueue() {
   console.log("START QUEUE CALLED");
   console.log("TOKEN:", token);
   console.log("CONCERT ID:", concertIdValue.value);
-  console.log("SCHEDULE ID:", props.scheduleId);
+  console.log("CONCERT CODE:", concertCodeValue.value);
+  console.log("SCHEDULE ID:", scheduleIdValue.value);
 
   const res = await fetch(
     buildQueueUrl('start'),
@@ -75,7 +86,7 @@ async function startQueue() {
 
 
 async function checkStatus() {
-  if (!canStartQueue.value) {
+  if (!canStartQueue.value || scheduleIdValue.value === null) {
     return;
   }
 
@@ -100,7 +111,7 @@ async function checkStatus() {
       const seatToken = localStorage.getItem("ticketkorea_access_token");
 
       const seatRes = await fetch(
-        `http://localhost:8081/api/seats/seats?token=${data.entryToken}`,
+        `http://localhost:8081/api/seats/seats?token=${encodeURIComponent(data.entryToken)}&concertId=${concertIdValue.value}&scheduleId=${scheduleIdValue.value}`,
         {
           headers: {
             Authorization: `Bearer ${seatToken}`
