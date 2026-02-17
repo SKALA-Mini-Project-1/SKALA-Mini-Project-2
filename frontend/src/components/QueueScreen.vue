@@ -1,66 +1,108 @@
 <script setup lang="ts">
 import { AlertTriangle, Clock, Info, Loader2 } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
 
+const router = useRouter();
 
 const emit = defineEmits<{
   queueComplete: [];
 }>();
 
-const position = ref(15847);
+const concertId = 1;
+
+const position = ref(0);
 const progress = ref(0);
 const isSurge = ref(false);
+
 let queueTimer: ReturnType<typeof setInterval> | null = null;
-let surgeTimer: ReturnType<typeof setTimeout> | null = null;
 
+// 1️⃣ 대기열 진입
+async function startQueue() {
+  const token = localStorage.getItem("ticketkorea_access_token");
 
-onMounted(() => {
-  queueTimer = setInterval(async () => {
-    try {
-      const token = localStorage.getItem("accessToken");
+  console.log("START QUEUE CALLED");
+  console.log("TOKEN:", token);
+  console.log("CONCERT ID:", concertId);
 
-      // 1️⃣ 내 순위 조회
-      const rankRes = await fetch(
-        `http://localhost:10010/api/ticketing/rank?concertId=${concertId}&userId=1`
-      );
-      const rankData = await rankRes.json();
-
-      position.value = rankData.rank;
-
-      // 2️⃣ 입장 가능 시도
-      const enterRes = await fetch(
-        `http://localhost:10010/api/ticketing/try-enter-seat?concertId=${concertId}&userId=1`,
-        { method: "POST" }
-      );
-
-      if (enterRes.ok) {
-        const enterData = await enterRes.json();
-        window.location.href = enterData.redirectUrl;
+  const res = await fetch(
+    `http://localhost:10010/api/ticketing/start?concertId=${concertId}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`
       }
+    }
+  );
 
-    } catch (err) {
-      console.error("대기열 polling 실패", err);
+  console.log("START RESPONSE STATUS:", res.status);
+}
+
+
+async function checkStatus() {
+  try {
+    const token = localStorage.getItem("ticketkorea_access_token");
+
+    const res = await fetch(
+      `http://localhost:10010/api/ticketing/status?concertId=${concertId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
+
+    const data = await res.json();
+    console.log("status data:", data);
+
+    if (data.enter) {
+      if (queueTimer) clearInterval(queueTimer);
+
+      const seatToken = localStorage.getItem("ticketkorea_access_token");
+
+      const seatRes = await fetch(
+        `http://localhost:8081/api/seats/seats?token=${data.entryToken}`,
+        {
+          headers: {
+            Authorization: `Bearer ${seatToken}`
+          }
+        }
+      );
+
+      if (seatRes.ok) {
+        emit("queueComplete");
+        router.push("/concert/seat");
+      }
+    } else {
+      position.value = data.rank ?? 0;
     }
 
-  }, 2000);
-});
+  } catch (err) {
+    console.error("대기열 polling 실패", err);
+  }
+}
 
+
+
+onMounted(async () => {
+  await startQueue(); // 🔥 반드시 먼저 진입
+  queueTimer = setInterval(checkStatus, 1000);
+});
 
 onBeforeUnmount(() => {
-  if (queueTimer) {
-    clearInterval(queueTimer);
-  }
-  if (surgeTimer) {
-    clearTimeout(surgeTimer);
-  }
+  if (queueTimer) clearInterval(queueTimer);
 });
 
-const waitLabel = computed(() => `${Math.ceil(position.value / 100)}분 ${position.value % 60}초`);
-const aheadCount = computed(() => Math.max(0, position.value - 1200).toLocaleString());
+const waitLabel = computed(() =>
+  `${Math.ceil(position.value / 100)}분 ${position.value % 60}초`
+);
+
+const aheadCount = computed(() =>
+  Math.max(0, position.value - 1).toLocaleString()
+);
 </script>
 
 <template>
-  <h1 style="color:red">QUEUE SCREEN</h1>
   <div class="flex min-h-[600px] items-center justify-center bg-gray-50 p-3 sm:p-4">
     <div class="w-full max-w-md overflow-hidden rounded-sm border border-[#e0e0e0] bg-white shadow-xl">
       <div class="p-4 text-center font-bold text-white" :class="isSurge ? 'bg-[#E8000B]' : 'bg-[#333]'">

@@ -6,7 +6,16 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public class QueueStatusResponse {
-    private long rank;
-    private boolean allowed;
-    private String redirectUrl;
+
+    private boolean enter;
+    private String entryToken;
+    private Long rank;
+
+    public static QueueStatusResponse enter(String token) {
+        return new QueueStatusResponse(true, token, null);
+    }
+
+    public static QueueStatusResponse waiting(Long rank) {
+        return new QueueStatusResponse(false, null, rank);
+    }
 }

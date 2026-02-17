@@ -21,7 +21,7 @@ public class SkalaMiniProject1Application {
 
 		// 2. Spring 실행 전 시스템 변수에 값이 있는지 강제로 확인
 		System.out.println("=== 환경 변수 점검 ===");
-		System.out.println("DB_URL: " + System.getProperty("DB_URL"));
+		System.out.println("DB_UcRL: " + System.getProperty("DB_URL"));
 		System.out.println("DB_USER: " + System.getProperty("DB_USER"));
 		System.out.println("====================");
 

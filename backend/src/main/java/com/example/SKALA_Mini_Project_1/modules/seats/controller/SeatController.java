@@ -210,22 +210,24 @@ public class SeatController {
 
     // 대기열에서 입장 허용된 사용자만 접근 가능한 엔드포인트
     @GetMapping("/seats")
-    public ResponseEntity<?> enterSeat(
-            @RequestParam String token
-    ) {
+        public ResponseEntity<?> enterSeat(@RequestParam String token) {
 
         String key = "seat:entry:" + token;
 
         String userId = redisTemplate.opsForValue().get(key);
 
         if (userId == null) {
-            return ResponseEntity.status(403)
-                    .body("유효하지 않은 접근");
+                return ResponseEntity.status(403)
+                        .body("유효하지 않은 접근");
         }
 
-        // 1회용 처리
+        // 1회용 토큰 삭제
         redisTemplate.delete(key);
 
+        // 🔥 active 증가
+        redisTemplate.opsForValue()
+                .increment("seat:active:concert:1");
+
         return ResponseEntity.ok("좌석 선택 화면 입장 성공");
-    }
+        }
 }
