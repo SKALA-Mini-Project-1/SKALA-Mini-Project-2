@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.example.SKALA_Mini_Project_1.modules.seats.dto.BatchSeatHoldRequest;
 import com.example.SKALA_Mini_Project_1.modules.seats.dto.SeatSelectRequest;
 import com.example.SKALA_Mini_Project_1.modules.seats.service.SeatReservationService;
+import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
 
 
 import org.springframework.data.redis.core.RedisTemplate;
@@ -210,9 +211,10 @@ public class SeatController {
 
     // 대기열에서 입장 허용된 사용자만 접근 가능한 엔드포인트
     @GetMapping("/seats")
-        public ResponseEntity<?> enterSeat(
+    public ResponseEntity<?> enterSeat(
                 @RequestParam("token") String token,
-                @RequestParam("concertId") Long concertId
+                @RequestParam("concertId") Long concertId,
+                @RequestParam("scheduleId") Long scheduleId
         ) {
 
         String key = "seat:entry:" + token;
@@ -225,13 +227,17 @@ public class SeatController {
         }
 
         String[] parts = tokenPayload.split(":");
-        if (parts.length != 2) {
+        if (parts.length != 2 && parts.length != 3) {
             return ResponseEntity.status(403).body("토큰 형식 오류");
         }
 
         Long tokenConcertId;
+        Long tokenScheduleId = null;
         try {
             tokenConcertId = Long.parseLong(parts[1]);
+            if (parts.length == 3) {
+                tokenScheduleId = Long.parseLong(parts[2]);
+            }
         } catch (NumberFormatException e) {
             return ResponseEntity.status(403).body("토큰 형식 오류");
         }
@@ -239,11 +245,14 @@ public class SeatController {
         if (!concertId.equals(tokenConcertId)) {
             return ResponseEntity.status(403).body("콘서트 정보 불일치");
         }
+        if (tokenScheduleId != null && !scheduleId.equals(tokenScheduleId)) {
+            return ResponseEntity.status(403).body("회차 정보 불일치");
+        }
 
         // 1회용 토큰 삭제
         redisTemplate.delete(key);
 
-        String activeKey = "seat:active:concert:" + concertId;
+        String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
         Long active = redisTemplate.opsForValue()
                 .increment(activeKey);
                 

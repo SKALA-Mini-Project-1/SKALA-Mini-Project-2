@@ -14,8 +14,8 @@ import lombok.RequiredArgsConstructor;
 public class RedisLockRepository {
     private final RedisTemplate<String, String> redisTemplate;
 
-    public boolean lockSeat(Long concertId, Long seatId, String userId) {
-        String key = RedisKeyGenerator.seatLockKey(concertId, seatId);
+    public boolean lockSeat(Long concertId, Long scheduleId, Long seatId, String userId) {
+        String key = RedisKeyGenerator.seatLockKey(concertId, scheduleId, seatId);
 
         Boolean success = redisTemplate.opsForValue()
                 .setIfAbsent(key, userId, Duration.ofMinutes(5));
@@ -23,20 +23,20 @@ public class RedisLockRepository {
         return Boolean.TRUE.equals(success);
     }
 
-    public void unlockSeat(Long concertId, Long seatId) {
-        String key = RedisKeyGenerator.seatLockKey(concertId, seatId);
+    public void unlockSeat(Long concertId, Long scheduleId, Long seatId) {
+        String key = RedisKeyGenerator.seatLockKey(concertId, scheduleId, seatId);
 
         redisTemplate.delete(key);
     }
 
-    public String getSeatOwner(Long concertId, Long seatId) {
-        String key = RedisKeyGenerator.seatLockKey(concertId, seatId);
+    public String getSeatOwner(Long concertId, Long scheduleId, Long seatId) {
+        String key = RedisKeyGenerator.seatLockKey(concertId, scheduleId, seatId);
 
         return redisTemplate.opsForValue().get(key);
     }
 
-    public Long getSeatLockTtlSeconds(Long concertId, Long seatId) {
-        String key = RedisKeyGenerator.seatLockKey(concertId, seatId);
+    public Long getSeatLockTtlSeconds(Long concertId, Long scheduleId, Long seatId) {
+        String key = RedisKeyGenerator.seatLockKey(concertId, scheduleId, seatId);
         Long ttl = redisTemplate.getExpire(key, TimeUnit.SECONDS);
         if (ttl == null || ttl <= 0) {
             return null;
@@ -44,8 +44,8 @@ public class RedisLockRepository {
         return ttl;
     }
 
-    public int countUserHeldSeats(Long concertId, String userId) {
-        Set<String> keys = redisTemplate.keys("seat:concert:" + concertId + ":*");
+    public int countUserHeldSeats(Long concertId, Long scheduleId, String userId) {
+        Set<String> keys = redisTemplate.keys("seat:concert:" + concertId + ":schedule:" + scheduleId + ":*");
         if (keys == null || keys.isEmpty()) {
             return 0;
         }

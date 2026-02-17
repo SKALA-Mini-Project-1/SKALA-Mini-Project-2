@@ -23,6 +23,7 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 
 import com.example.SKALA_Mini_Project_1.modules.bookings.domain.Booking;
+import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
 import com.example.SKALA_Mini_Project_1.modules.payments.client.TossConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingItemRepository;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmRequest;
@@ -361,19 +362,21 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
         payment.setCompletedAt(OffsetDateTime.now());
         payment.changeStatus(PaymentStatus.PAID);
 
+        Booking booking = bookingRepository.findById(payment.getBookingId())
+                .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
+        Long scheduleId = booking.getScheduleId();
         Long concertId = bookingRepository.findConcertIdByBookingId(payment.getBookingId())
                 .orElseThrow(() -> new IllegalStateException("Concert not found for booking: " + payment.getBookingId()));
 
-        String activeKey = "seat:active:concert:" + concertId;
-        Long active = redisTemplate.opsForValue().decrement(activeKey);
-        if (active == null || active < 0) {
-            redisTemplate.opsForValue().set(activeKey, "0");
-            active = 0L;
+        if (scheduleId != null) {
+            String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
+            Long active = redisTemplate.opsForValue().decrement(activeKey);
+            if (active == null || active < 0) {
+                redisTemplate.opsForValue().set(activeKey, "0");
+                active = 0L;
+            }
+            System.out.println("ACTIVE 감소 → 현재 인원: " + active);
         }
-        System.out.println("ACTIVE 감소 → 현재 인원: " + active);
-
-        Booking booking = bookingRepository.findById(payment.getBookingId())
-                .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
         
 
 

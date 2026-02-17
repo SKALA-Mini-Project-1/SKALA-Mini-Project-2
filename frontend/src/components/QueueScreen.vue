@@ -37,19 +37,29 @@ const concertCodeValue = computed(() => {
 });
 
 const canStartQueue = computed(() => concertCodeValue.value !== null && concertIdValue.value !== null);
+const scheduleIdValue = computed(() => {
+  if (!props.scheduleId) {
+    return null;
+  }
+  const parsed = Number(props.scheduleId);
+  return Number.isNaN(parsed) ? null : parsed;
+});
 
 const buildQueueUrl = (path: 'start' | 'status') => {
   const params = new URLSearchParams();
   if (concertCodeValue.value) {
     params.set('concertCode', concertCodeValue.value);
   }
+  if (scheduleIdValue.value !== null) {
+    params.set('scheduleId', String(scheduleIdValue.value));
+  }
   return `http://localhost:10010/api/ticketing/${path}?${params.toString()}`;
 };
 
 // 1️⃣ 대기열 진입
 async function startQueue() {
-  if (!canStartQueue.value) {
-    console.error('대기열 진입 실패: concertCode 또는 concertId가 없습니다.');
+  if (!canStartQueue.value || scheduleIdValue.value === null) {
+    console.error('대기열 진입 실패: concertCode, concertId 또는 scheduleId가 없습니다.');
     return;
   }
 
@@ -59,6 +69,7 @@ async function startQueue() {
   console.log("TOKEN:", token);
   console.log("CONCERT ID:", concertIdValue.value);
   console.log("CONCERT CODE:", concertCodeValue.value);
+  console.log("SCHEDULE ID:", scheduleIdValue.value);
 
   const res = await fetch(
     buildQueueUrl('start'),
@@ -75,7 +86,7 @@ async function startQueue() {
 
 
 async function checkStatus() {
-  if (!canStartQueue.value) {
+  if (!canStartQueue.value || scheduleIdValue.value === null) {
     return;
   }
 
@@ -100,7 +111,7 @@ async function checkStatus() {
       const seatToken = localStorage.getItem("ticketkorea_access_token");
 
       const seatRes = await fetch(
-        `http://localhost:8081/api/seats/seats?token=${encodeURIComponent(data.entryToken)}&concertId=${concertIdValue.value}`,
+        `http://localhost:8081/api/seats/seats?token=${encodeURIComponent(data.entryToken)}&concertId=${concertIdValue.value}&scheduleId=${scheduleIdValue.value}`,
         {
           headers: {
             Authorization: `Bearer ${seatToken}`

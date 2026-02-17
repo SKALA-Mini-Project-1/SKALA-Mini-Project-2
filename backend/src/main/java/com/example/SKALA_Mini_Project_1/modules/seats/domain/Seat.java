@@ -26,6 +26,9 @@ public class Seat {
     @Column(name = "seat_number", nullable = false)
     private Integer seatNumber;
 
+    @Column(name = "schedule_id", nullable = false)
+    private Long scheduleId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private SeatStatus status = SeatStatus.AVAILABLE;

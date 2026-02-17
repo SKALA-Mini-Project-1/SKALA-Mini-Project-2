@@ -10,26 +10,26 @@ import lombok.RequiredArgsConstructor;
 public class RedisQueueRepository {
     private final RedisTemplate<String, String> redisTemplate;
 
-    public void addToQueue(Long concertId, String userId) {
+    public void addToQueue(Long concertId, Long scheduleId, String userId) {
 
-        String key = RedisKeyGenerator.queueKey(concertId);
+        String key = RedisKeyGenerator.queueKey(concertId, scheduleId);
         long timestamp = System.currentTimeMillis();
 
         redisTemplate.opsForZSet()
                 .add(key, userId, timestamp);
     }
 
-    public Long getRank(Long concertId, String userId) {
+    public Long getRank(Long concertId, Long scheduleId, String userId) {
 
-        String key = RedisKeyGenerator.queueKey(concertId);
+        String key = RedisKeyGenerator.queueKey(concertId, scheduleId);
 
         return redisTemplate.opsForZSet()
                 .rank(key, userId);
     }
 
-    public void removeFromQueue(Long concertId, String userId) {
+    public void removeFromQueue(Long concertId, Long scheduleId, String userId) {
 
-        String key = RedisKeyGenerator.queueKey(concertId);
+        String key = RedisKeyGenerator.queueKey(concertId, scheduleId);
 
         redisTemplate.opsForZSet()
                 .remove(key, userId);

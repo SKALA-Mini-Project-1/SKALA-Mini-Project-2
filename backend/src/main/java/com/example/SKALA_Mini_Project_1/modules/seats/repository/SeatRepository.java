@@ -41,6 +41,17 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
 
     @Query(
             value = """
+                    SELECT s.id, s.section, s.row_number, s.seat_number, s.status, s.grade, s.price
+                    FROM seats s
+                    WHERE s.schedule_id = :scheduleId
+                    ORDER BY s.section, s.row_number, s.seat_number
+                    """,
+            nativeQuery = true
+    )
+    List<Object[]> findSeatMapByScheduleId(Long scheduleId);
+
+    @Query(
+            value = """
                     SELECT s.*
                     FROM seats s
                     JOIN schedules sc ON sc.id = s.schedule_id
@@ -50,6 +61,19 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
             nativeQuery = true
     )
     Optional<Seat> findByIdAndConcertId(Long seatId, Long concertId);
+
+    @Query(
+            value = """
+                    SELECT s.*
+                    FROM seats s
+                    JOIN schedules sc ON sc.id = s.schedule_id
+                    WHERE s.id = :seatId
+                      AND sc.concert_id = :concertId
+                      AND s.schedule_id = :scheduleId
+                    """,
+            nativeQuery = true
+    )
+    Optional<Seat> findByIdAndConcertIdAndScheduleId(Long seatId, Long concertId, Long scheduleId);
 
     @Query(
             value = """
