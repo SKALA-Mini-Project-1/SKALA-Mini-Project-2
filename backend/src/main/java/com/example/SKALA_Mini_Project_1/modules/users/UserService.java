@@ -89,9 +89,9 @@ public class UserService {
             throw new IllegalArgumentException("이미 가입된 이메일입니다");
         }
         // 2. 이메일 인증 완료 여부 확인
-        // if (!emailVerificationService.isEmailVerified(request.getEmail())) {
-        //     throw new IllegalArgumentException("이메일 인증이 완료되지 않았습니다. 먼저 이메일 인증을 진행해주세요.");
-        // }
+        if (!emailVerificationService.isEmailVerified(request.getEmail())) {
+            throw new IllegalArgumentException("이메일 인증이 완료되지 않았습니다. 먼저 이메일 인증을 진행해주세요.");
+        }
         // 3. 사용자 엔티티 생성 (나중에 비밀번호 암호화 추가 예정)
         User user = User.builder()
                 .email(request.getEmail())
