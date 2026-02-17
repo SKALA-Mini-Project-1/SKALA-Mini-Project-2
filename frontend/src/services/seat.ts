@@ -10,9 +10,16 @@ export interface SeatMapItem {
   isHeldByMe?: boolean | null;
 }
 
+export interface SeatHoldResponse {
+  action?: 'held' | 'released';
+  status?: string;
+  message?: string;
+}
+
 interface SeatMapResponse {
   concertId: number;
   seatCount: number;
+  seatAccessTtlSeconds?: number;
   seats: SeatMapItem[];
 }
 
@@ -37,7 +44,7 @@ export const getSeatMapBySchedule = async (scheduleId: number) => {
 export const holdSeat = async (scheduleId: number, section: string, rowNumber: number, seatNumber: number) => {
   const token = getToken();
 
-  return apiRequest<unknown>(`/api/seats/hold`, {
+  return apiRequest<SeatHoldResponse>(`/api/seats/hold`, {
     method: 'POST',
     body: JSON.stringify({ scheduleId, section, rowNumber, seatNumber }),
     ...(token ? { token } : {})
