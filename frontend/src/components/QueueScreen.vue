@@ -8,7 +8,6 @@ const emit = defineEmits<{
 
 const props = defineProps<{
   concertId: string | null;
-  concertCode: string | null;
   scheduleId: string | null;
 }>();
 
@@ -26,17 +25,7 @@ const concertIdValue = computed(() => {
   return Number.isNaN(parsed) ? null : parsed;
 });
 
-const concertCodeValue = computed(() => {
-  if (props.concertCode && props.concertCode.trim().length > 0) {
-    return props.concertCode.trim();
-  }
-  if (props.concertId) {
-    return props.concertId;
-  }
-  return null;
-});
-
-const canStartQueue = computed(() => concertCodeValue.value !== null && concertIdValue.value !== null);
+const canStartQueue = computed(() => concertIdValue.value !== null);
 const scheduleIdValue = computed(() => {
   if (!props.scheduleId) {
     return null;
@@ -47,8 +36,8 @@ const scheduleIdValue = computed(() => {
 
 const buildQueueUrl = (path: 'start' | 'status') => {
   const params = new URLSearchParams();
-  if (concertCodeValue.value) {
-    params.set('concertCode', concertCodeValue.value);
+  if (concertIdValue.value !== null) {
+    params.set('concertId', String(concertIdValue.value));
   }
   if (scheduleIdValue.value !== null) {
     params.set('scheduleId', String(scheduleIdValue.value));
@@ -59,7 +48,7 @@ const buildQueueUrl = (path: 'start' | 'status') => {
 // 1️⃣ 대기열 진입
 async function startQueue() {
   if (!canStartQueue.value || scheduleIdValue.value === null) {
-    console.error('대기열 진입 실패: concertCode, concertId 또는 scheduleId가 없습니다.');
+    console.error('대기열 진입 실패: concertId 또는 scheduleId가 없습니다.');
     return;
   }
 
@@ -68,7 +57,6 @@ async function startQueue() {
   console.log("START QUEUE CALLED");
   console.log("TOKEN:", token);
   console.log("CONCERT ID:", concertIdValue.value);
-  console.log("CONCERT CODE:", concertCodeValue.value);
   console.log("SCHEDULE ID:", scheduleIdValue.value);
 
   const res = await fetch(

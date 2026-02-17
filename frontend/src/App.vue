@@ -325,7 +325,6 @@ onUnmounted(() => {
       <QueueScreen
         v-else-if="normalizedPath === '/concert/queue'"
         :concert-id="bookingData.concertId"
-        :concert-code="bookingData.concertCode"
         :schedule-id="bookingData.scheduleId"
         @queue-complete="handleQueueComplete"
       />
