@@ -1,62 +1,91 @@
 <script setup lang="ts">
 import { AlertTriangle, Clock, Info, Loader2 } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
 
+const router = useRouter();
 
 const emit = defineEmits<{
   queueComplete: [];
 }>();
 
-const position = ref(15847);
+const concertId = 1;
+
+const position = ref(0);
 const progress = ref(0);
 const isSurge = ref(false);
+
 let queueTimer: ReturnType<typeof setInterval> | null = null;
-let surgeTimer: ReturnType<typeof setTimeout> | null = null;
 
+// 🔥 1️⃣ 대기열 진입
+async function startQueue() {
+  const token = localStorage.getItem("accessToken");
 
-onMounted(() => {
-  queueTimer = setInterval(async () => {
-    try {
-      const token = localStorage.getItem("accessToken");
+  await fetch("http://localhost:10010/api/ticketing/start", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ concertId })
+  });
+}
 
-      // 1️⃣ 내 순위 조회
-      const rankRes = await fetch(
-        `http://localhost:10010/api/ticketing/rank?concertId=${concertId}&userId=1`
+// 🔥 2️⃣ 상태 polling
+async function checkStatus() {
+  try {
+    const token = localStorage.getItem("accessToken");
+
+    const res = await fetch(
+      `http://localhost:10010/api/ticketing/status?concertId=${concertId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
+
+    const data = await res.json();
+
+    if (data.enter) {
+      if (queueTimer) clearInterval(queueTimer);
+
+      // 🔥 좌석 서버 입장
+      const seatRes = await fetch(
+        `http://localhost:8081/api/seats/seats?token=${data.entryToken}`
       );
-      const rankData = await rankRes.json();
 
-      position.value = rankData.rank;
-
-      // 2️⃣ 입장 가능 시도
-      const enterRes = await fetch(
-        `http://localhost:10010/api/ticketing/try-enter-seat?concertId=${concertId}&userId=1`,
-        { method: "POST" }
-      );
-
-      if (enterRes.ok) {
-        const enterData = await enterRes.json();
-        window.location.href = enterData.redirectUrl;
+      if (seatRes.ok) {
+        emit("queueComplete");
+        router.push("/concert/seat");
       }
 
-    } catch (err) {
-      console.error("대기열 polling 실패", err);
+    } else {
+      position.value = data.rank;
     }
 
-  }, 2000);
-});
+  } catch (err) {
+    console.error("대기열 polling 실패", err);
+  }
+}
 
+onMounted(async () => {
+  await startQueue(); // 🔥 반드시 먼저 진입
+
+  queueTimer = setInterval(checkStatus, 1000);
+});
 
 onBeforeUnmount(() => {
-  if (queueTimer) {
-    clearInterval(queueTimer);
-  }
-  if (surgeTimer) {
-    clearTimeout(surgeTimer);
-  }
+  if (queueTimer) clearInterval(queueTimer);
 });
 
-const waitLabel = computed(() => `${Math.ceil(position.value / 100)}분 ${position.value % 60}초`);
-const aheadCount = computed(() => Math.max(0, position.value - 1200).toLocaleString());
+const waitLabel = computed(() =>
+  `${Math.ceil(position.value / 100)}분 ${position.value % 60}초`
+);
+
+const aheadCount = computed(() =>
+  Math.max(0, position.value - 1).toLocaleString()
+);
 </script>
 
 <template>
