@@ -3,7 +3,7 @@ import { ANONYMOUS, loadTossPayments } from '@tosspayments/tosspayments-sdk';
 import { Loader2 } from 'lucide-vue-next';
 import { computed, reactive, ref } from 'vue';
 import { createPayment, submitPayment } from '../data/payments';
-import { getAuthUser } from '../services/auth';
+import { getAuthUser, getToken } from '../services/auth';
 import type { BookingData } from '../types';
 
 const props = defineProps<{
@@ -56,7 +56,8 @@ const handlePayment = async () => {
 
     const tossPayments = await loadTossPayments(clientKey);
     const authUser = getAuthUser();
-    if (!authUser?.userId) {
+    const token = getToken();
+    if (!authUser?.userId || !token) {
       alert('로그인이 필요합니다. 다시 로그인 후 시도해주세요.');
       return;
     }
@@ -72,15 +73,16 @@ const handlePayment = async () => {
       return;
     }
 
-    const created = await createPayment({ bookingId, userId: authUser.userId });
-    const submitted = await submitPayment(created.paymentId, authUser.userId);
+    const created = await createPayment({ bookingId, userId: authUser.userId }, token);
+    const submitted = await submitPayment(created.paymentId, authUser.userId, token);
 
     const amount = submitted.amount;
     const orderId = submitted.orderId;
     const orderName = submitted.orderName || (props.bookingData.concertTitle ? `${props.bookingData.concertTitle} 티켓` : '공연 티켓');
     const customerName = authUser.name ?? '고객';
-    const successUrl = submitted.successUrl || `${window.location.origin}/payments/success`;
-    const failUrl = submitted.failUrl || `${window.location.origin}/payments/fail`;
+    // Always use current frontend origin so auth/session state is preserved after PG redirect.
+    const successUrl = `${window.location.origin}/payments/success`;
+    const failUrl = `${window.location.origin}/payments/fail`;
 
     const customerKey = submitted.customerKey ?? `USER_${authUser.userId}` ?? ANONYMOUS;
     const payment = tossPayments.payment({ customerKey });
