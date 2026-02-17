@@ -135,10 +135,14 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
                     WHERE s.id = :seatId
                       AND sc.concert_id = :concertId
                       AND s.schedule_id = :scheduleId
-                    """,
+            """,
             nativeQuery = true
     )
-    Optional<Seat> findByIdAndConcertIdAndScheduleId(Long seatId, Long concertId, Long scheduleId);
+    Optional<Seat> findByIdAndConcertIdAndScheduleId(
+            @Param("seatId") Long seatId,
+            @Param("concertId") Long concertId,
+            @Param("scheduleId") Long scheduleId
+    );
 
     @Query(
             value = """
@@ -156,7 +160,10 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
             """,
             nativeQuery = true
     )
-    List<SeatBookingView> findSeatBookingViews(Long concertId, List<Long> seatIds);
+    List<SeatBookingView> findSeatBookingViews(
+            @Param("concertId") Long concertId,
+            @Param("seatIds") List<Long> seatIds
+    );
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(

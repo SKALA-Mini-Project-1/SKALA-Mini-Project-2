@@ -35,10 +35,10 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
                     JOIN schedules s ON s.id = b.schedule_id
                     JOIN concerts c ON c.id = s.concert_id
                     WHERE b.id = :bookingId
-                    """,
+            """,
             nativeQuery = true
     )
-    Optional<BookingConcertInfo> findBookingConcertInfo(UUID bookingId);
+    Optional<BookingConcertInfo> findBookingConcertInfo(@Param("bookingId") UUID bookingId);
 
     @Query(
             value = """
