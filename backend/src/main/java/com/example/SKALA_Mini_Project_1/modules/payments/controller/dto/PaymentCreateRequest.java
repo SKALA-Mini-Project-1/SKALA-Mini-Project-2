@@ -13,8 +13,4 @@ public class PaymentCreateRequest {
 
     @NotNull
     private UUID bookingId;
-
-    @NotNull
-    private Long userId;
-
 }

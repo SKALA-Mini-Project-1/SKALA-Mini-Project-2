@@ -44,20 +44,15 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // CORS preflight 요청은 인증 없이 허용
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                // 결제 관련 API는 인증 없이 접근 허용
-                .requestMatchers("/api/payments/confirm").permitAll()
-                .requestMatchers("/api/payments/toss/webhook").permitAll()
-                .requestMatchers("/api/payments/**").permitAll()
-                .requestMatchers("/api/toss/**").permitAll()
-
-                .requestMatchers("/payments/**").permitAll()
-                .requestMatchers("/toss/**").permitAll()
+                // PG 서버 콜백 엔드포인트만 공개
+                .requestMatchers("/api/payments/toss/**").permitAll()
                 // ✨ Swagger 관련 경로는 모두 허용
                 .requestMatchers(
                     "/swagger-ui/**",
                     "/v3/api-docs/**",
                     "/swagger-resources/**",
-                    "/swagger-ui.html"
+                    "/swagger-ui.html",
+                    "/error"
                 ).permitAll()
                 // 인증 없이 접근 가능한 API
                 .requestMatchers(

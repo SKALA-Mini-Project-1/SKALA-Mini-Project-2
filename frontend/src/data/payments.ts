@@ -43,12 +43,11 @@ export async function createPayment(req: PaymentCreateRequest, token: string): P
   return await res.json();
 }
 
-export async function submitPayment(paymentId: string, userId: number, token: string): Promise<PaymentSubmitResponse> {
+export async function submitPayment(paymentId: string, token: string): Promise<PaymentSubmitResponse> {
   const res = await fetch(`/api/payments/${paymentId}/submit`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-USER-ID": String(userId),
       Authorization: `Bearer ${token}`
     }
   });

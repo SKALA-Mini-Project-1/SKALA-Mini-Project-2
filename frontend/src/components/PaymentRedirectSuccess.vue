@@ -20,11 +20,14 @@ const getPaymentsBase = () => {
 
 async function confirmPayment(paymentKey: string, orderId: string, amount: number) {
   const token = getToken();
+  if (!token) {
+    throw new Error("로그인이 만료되었습니다. 다시 로그인 후 결제를 확인해주세요.");
+  }
   const response = await fetch(`${getPaymentsBase()}/confirm`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
+      Authorization: `Bearer ${token}`
     },
     body: JSON.stringify({
       paymentKey,

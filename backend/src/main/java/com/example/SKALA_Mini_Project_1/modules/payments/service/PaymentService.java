@@ -4,9 +4,14 @@ package com.example.SKALA_Mini_Project_1.modules.payments.service;
 
 import java.util.Base64;
 import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -26,19 +31,24 @@ import com.example.SKALA_Mini_Project_1.modules.bookings.domain.Booking;
 import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
 import com.example.SKALA_Mini_Project_1.modules.payments.client.TossConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingItemRepository;
+import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository;
 import com.example.SKALA_Mini_Project_1.modules.seats.repository.SeatRepository;
 import com.example.SKALA_Mini_Project_1.global.redis.RedisLockRepository;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmResponse;
-import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentGetResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentSubmitResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.TossWebhookRequest;
+import com.example.SKALA_Mini_Project_1.modules.payments.domain.PaymentEvent;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.Payment;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.PaymentStatus;
+import com.example.SKALA_Mini_Project_1.modules.payments.domain.Refund;
+import com.example.SKALA_Mini_Project_1.modules.payments.repository.PaymentEventRepository;
 import com.example.SKALA_Mini_Project_1.modules.payments.repository.PaymentRepository;
+import com.example.SKALA_Mini_Project_1.modules.payments.repository.RefundRepository;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.security.access.AccessDeniedException;
 
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -54,10 +64,16 @@ public class PaymentService {
     private final com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository bookingRepository;
     private final BookingItemRepository bookingItemRepository;
     private final SeatRepository seatRepository;
+    private final RefundRepository refundRepository;
+    private final PaymentEventRepository paymentEventRepository;
     private final RedisLockRepository redisLockRepository;
     private final RedisTemplate<String, String> redisTemplate;
 
     private static final Map<PaymentStatus, Set<PaymentStatus>> transitionMap = new EnumMap<>(PaymentStatus.class);
+    private static final int CREATE_EXPIRE_MINUTES = 5;
+    private static final int PAYING_HARD_DEADLINE_MINUTES = 10;
+    private static final String BOOKING_STATUS_CANCELED = "CANCELED";
+    private static final String SEAT_STATUS_HOLD = "HOLD";
 
 
         /**
@@ -65,24 +81,24 @@ public class PaymentService {
      */
     // Create
     @Transactional
-public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
-    if (req.getBookingId() == null) {
+public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
+    if (bookingId == null) {
         throw new IllegalArgumentException("bookingId is required");
     }
-    if (req.getUserId() == null) {
+    if (userId == null) {
         throw new IllegalArgumentException("userId is required");
     }
 
     // (권장) 동시성/중복 생성 방지: booking 락 조회로 바꾸면 더 안전
-    Booking booking = bookingRepository.findById(req.getBookingId())
-            .orElseThrow(() -> new EntityNotFoundException("Booking not found: " + req.getBookingId()));
+    Booking booking = bookingRepository.findById(bookingId)
+            .orElseThrow(() -> new EntityNotFoundException("Booking not found: " + bookingId));
 
-    if (!req.getUserId().equals(booking.getUserId())) {
+    if (!userId.equals(booking.getUserId())) {
         throw new IllegalArgumentException("booking user mismatch");
     }
 
     // ✅ booking_id UNIQUE 대응: 이미 결제가 있으면 새로 만들지 말고 그대로 반환
-    return paymentRepository.findByBookingId(req.getBookingId())
+    return paymentRepository.findByBookingId(bookingId)
             .map(existing -> new PaymentCreateResponse(
                     existing.getId(),
                     existing.getStatus(),
@@ -102,12 +118,12 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
                 }
 
                 Payment payment = new Payment();
-                payment.setBookingId(req.getBookingId());
-                payment.setUserId(req.getUserId());
+                payment.setBookingId(bookingId);
+                payment.setUserId(userId);
 
                 // seatId는 이제 의미가 애매함(booking이 다좌석 가능)
                 // 최소한으로 유지하려면 대표 1개만 넣되, null이면 안되면 예외 처리
-                Long firstSeatId = bookingItemRepository.findFirstSeatIdByBookingId(req.getBookingId());
+                Long firstSeatId = bookingItemRepository.findFirstSeatIdByBookingId(bookingId);
                 if (firstSeatId == null) {
                     throw new IllegalStateException("no seat found for booking");
                 }
@@ -120,7 +136,8 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
 
                 payment.setCreatedAt(now);
                 payment.setUpdatedAt(now);
-                payment.setExpiredAt(now.plusMinutes(5));
+                payment.setExpiredAt(now.plusMinutes(CREATE_EXPIRE_MINUTES));
+                payment.setHardDeadlineAt(null);
                 payment.setIdempotencyKey(null);
 
                 Payment saved = paymentRepository.save(payment);
@@ -140,9 +157,10 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
      */
     // Get
     @Transactional(readOnly = true)
-    public PaymentGetResponse getPayment(UUID paymentId) {
+    public PaymentGetResponse getPayment(UUID paymentId, Long userId) {
         Payment p = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
+        ensureOwner(p, userId);
 
         return new PaymentGetResponse(
                 p.getId(),
@@ -163,16 +181,19 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
 
     Payment payment = paymentRepository.findByIdForUpdate(paymentId)
             .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
+    ensureOwner(payment, userId);
 
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
     // 상태 전이
+    String fromStatus = payment.getStatus() == null ? null : payment.getStatus().name();
     payment.changeStatus(PaymentStatus.PAYING);
+    recordEvent(payment, "SUBMIT_PAYING", fromStatus, payment.getStatus().name(), null, payment.getPgOrderId());
 
-    // TTL 연장
-    OffsetDateTime base = payment.getExpiredAt();
-    OffsetDateTime effective = (base == null || base.isBefore(now)) ? now : base;
-    payment.setExpiredAt(effective.plusMinutes(3));
+    // 결제 진행(PAYING) 구간은 하드 데드라인 10분 정책을 적용한다.
+    OffsetDateTime hardDeadline = now.plusMinutes(PAYING_HARD_DEADLINE_MINUTES);
+    payment.setExpiredAt(hardDeadline);
+    payment.setHardDeadlineAt(hardDeadline);
 
     payment.setIdempotencyKey(UUID.randomUUID().toString());
     payment.setUpdatedAt(now);
@@ -229,9 +250,11 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
         // 3) 만료 여부 판단
-        boolean isExpiredNow = payment.getExpiredAt() != null && payment.getExpiredAt().isBefore(now);
+        boolean isExpiredNow = (payment.getExpiredAt() != null && payment.getExpiredAt().isBefore(now))
+                || (payment.getHardDeadlineAt() != null && payment.getHardDeadlineAt().isBefore(now));
         boolean isExpiredStatus = payment.getStatus() == PaymentStatus.EXPIRED;
-        boolean shouldMarkRefundRequired = isExpiredNow || isExpiredStatus;
+        boolean invalidHold = !isHoldValidForPayment(payment.getBookingId());
+        boolean shouldMarkRefundRequired = isExpiredNow || isExpiredStatus || invalidHold;
 
         // 4) Toss Confirm API 호출
         String confirmResponseBody;
@@ -262,9 +285,11 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
 
         // 6) 정책 A + 상태 전이
         if (shouldMarkRefundRequired) {
-            payment.changeStatus(PaymentStatus.REFUND_REQUIRED);
+            markRefundRequired(payment, now, orderId, invalidHold ? "INVALID_HOLD" : null);
         } else {
+            String from = payment.getStatus().name();
             payment.changeStatus(PaymentStatus.PAID);
+            recordEvent(payment, "PAYMENT_PAID", from, payment.getStatus().name(), null, orderId);
             payment.setCompletedAt(now);
             confirmPayment(payment, now);
         }
@@ -323,7 +348,9 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
     payment.setUpdatedAt(now);
 
     if (payment.getStatus() == PaymentStatus.PAYING) {
+        String from = payment.getStatus().name();
         payment.changeStatus(PaymentStatus.FAILED);
+        recordEvent(payment, "PAYMENT_FAILED", from, payment.getStatus().name(), failInfo, orderId);
     }
 
     paymentRepository.save(payment);
@@ -375,7 +402,19 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         payment.setCompletedAt(now);
         payment.setUpdatedAt(now);
+
+        if (!isHoldValidForPayment(payment.getBookingId())) {
+            markRefundRequired(payment, now, request.getOrderId(), "INVALID_HOLD");
+            return new PaymentConfirmResponse(
+                    payment.getId(),
+                    payment.getBookingId(),
+                    payment.getStatus().name()
+            );
+        }
+
+        String from = payment.getStatus().name();
         payment.changeStatus(PaymentStatus.PAID);
+        recordEvent(payment, "PAYMENT_PAID", from, payment.getStatus().name(), null, request.getOrderId());
         confirmPayment(payment, now);
 
         return new PaymentConfirmResponse(
@@ -395,6 +434,20 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
         payment.setPgPaymentKey(request.getPaymentKey());
         payment.setPgStatus(request.getStatus());
         payment.setUpdatedAt(now);
+        String statusUpper = String.valueOf(request.getStatus()).toUpperCase();
+        String webhookType = "WEBHOOK_" + statusUpper + "_RECEIVED";
+        String webhookEventId = (request.getPaymentKey() == null || request.getPaymentKey().isBlank())
+                ? request.getOrderId()
+                : statusUpper + "|" + request.getPaymentKey();
+
+        if (webhookEventId != null
+                && paymentEventRepository.existsByPaymentIdAndEventTypeAndPgEventId(
+                        payment.getId(), webhookType, webhookEventId)) {
+            return;
+        }
+
+        String currentStatus = payment.getStatus() == null ? null : payment.getStatus().name();
+        recordEvent(payment, webhookType, currentStatus, currentStatus, null, webhookEventId);
 
         // 이미 확정된 건 무시 (멱등성)
         if (payment.getStatus() == PaymentStatus.CONFIRMED) {
@@ -403,12 +456,18 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
 
         if ("DONE".equalsIgnoreCase(request.getStatus())) {
             if (payment.getStatus() == PaymentStatus.EXPIRED) {
-                payment.changeStatus(PaymentStatus.REFUND_REQUIRED);
+                markRefundRequired(payment, now, request.getOrderId(), "LATE_DONE_AFTER_EXPIRED");
                 return;
             }
 
             if (payment.getStatus() == PaymentStatus.PAYING) {
+                if (!isHoldValidForPayment(payment.getBookingId())) {
+                    markRefundRequired(payment, now, request.getOrderId(), "INVALID_HOLD");
+                    return;
+                }
+                String from = payment.getStatus().name();
                 payment.changeStatus(PaymentStatus.PAID);
+                recordEvent(payment, "PAYMENT_PAID", from, payment.getStatus().name(), null, request.getOrderId());
                 payment.setCompletedAt(now);
             }
 
@@ -420,17 +479,105 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
                 || "FAILED".equalsIgnoreCase(request.getStatus())) {
             if (payment.getStatus() == PaymentStatus.PAYING
                     || payment.getStatus() == PaymentStatus.PENDING) {
+                String from = payment.getStatus().name();
                 payment.changeStatus(PaymentStatus.FAILED);
+                recordEvent(payment, "PAYMENT_FAILED", from, payment.getStatus().name(), null, request.getOrderId());
             } else {
                 return;
             }
-
-            Booking booking = bookingRepository.findById(payment.getBookingId())
-                    .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
-
-            booking.setStatus("CANCELED");
-            booking.setCanceledAt(now);
+            cancelBookingAndReleaseResources(payment.getBookingId(), now, BOOKING_STATUS_CANCELED);
         }
+    }
+
+    @Transactional
+    public PaymentConfirmResponse cancelByUser(UUID paymentId, Long userId) {
+        Payment payment = paymentRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
+        ensureOwner(payment, userId);
+
+        if (payment.getStatus() != PaymentStatus.PENDING
+                && payment.getStatus() != PaymentStatus.PAYING) {
+            throw new IllegalStateException("User cancel is only allowed in PENDING/PAYING: " + payment.getStatus());
+        }
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        String from = payment.getStatus().name();
+        payment.changeStatus(PaymentStatus.CANCELED);
+        payment.setUpdatedAt(now);
+        payment.setPgStatus("USER_CANCELED");
+        recordEvent(payment, "PAYMENT_CANCELED_BY_USER", from, payment.getStatus().name(), null, payment.getPgOrderId());
+
+        cancelBookingAndReleaseResources(payment.getBookingId(), now, BOOKING_STATUS_CANCELED);
+
+        return new PaymentConfirmResponse(payment.getId(), payment.getBookingId(), payment.getStatus().name());
+    }
+
+    private void cancelBookingAndReleaseResources(UUID bookingId, OffsetDateTime now, String bookingStatus) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
+
+        booking.setStatus(bookingStatus);
+        booking.setCanceledAt(now);
+
+        seatRepository.releaseSeatHoldsByBookingId(bookingId);
+
+        Long scheduleId = booking.getScheduleId();
+        Long userId = booking.getUserId();
+        if (scheduleId == null || userId == null) {
+            return;
+        }
+
+        Long concertId = bookingRepository.findConcertIdByBookingId(bookingId).orElse(null);
+        if (concertId == null) {
+            return;
+        }
+
+        redisLockRepository.releaseUserHeldSeats(concertId, scheduleId, String.valueOf(userId));
+
+        String accessKey = RedisKeyGenerator.seatAccessKey(userId, concertId, scheduleId);
+        String accessByScheduleKey = RedisKeyGenerator.seatAccessByScheduleKey(userId, scheduleId);
+        boolean hadAccess = Boolean.TRUE.equals(redisTemplate.hasKey(accessKey))
+                || Boolean.TRUE.equals(redisTemplate.hasKey(accessByScheduleKey));
+
+        redisTemplate.delete(accessKey);
+        redisTemplate.delete(accessByScheduleKey);
+
+        if (hadAccess) {
+            String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
+            Long active = redisTemplate.opsForValue().decrement(activeKey);
+            if (active == null || active < 0) {
+                redisTemplate.opsForValue().set(activeKey, "0");
+            }
+        }
+    }
+
+    private void markRefundRequired(Payment payment, OffsetDateTime now, String orderId, String reason) {
+        String reasonPayload = reason == null ? null : "{\"reason\":\"" + reason + "\"}";
+        if (payment.getStatus() != PaymentStatus.EXPIRED) {
+            String from = payment.getStatus().name();
+            payment.changeStatus(PaymentStatus.EXPIRED);
+            recordEvent(payment, "PAYMENT_EXPIRED", from, payment.getStatus().name(), reasonPayload, orderId);
+        }
+        String from = payment.getStatus().name();
+        payment.changeStatus(PaymentStatus.REFUND_REQUIRED);
+        recordEvent(payment, "REFUND_REQUIRED_MARKED", from, payment.getStatus().name(), reasonPayload, orderId);
+        payment.setUpdatedAt(now);
+    }
+
+    private boolean isHoldValidForPayment(UUID bookingId) {
+        Booking booking = bookingRepository.findById(bookingId).orElse(null);
+        if (booking == null) {
+            return false;
+        }
+        if (BOOKING_STATUS_CANCELED.equalsIgnoreCase(booking.getStatus())) {
+            return false;
+        }
+        Long firstSeatId = bookingItemRepository.findFirstSeatIdByBookingId(bookingId);
+        if (firstSeatId == null) {
+            return false;
+        }
+        long notHoldCount = seatRepository.countSeatsNotInStatusByBookingId(bookingId, SEAT_STATUS_HOLD);
+        return notHoldCount == 0;
     }
 
     private void confirmPayment(Payment payment, OffsetDateTime now) {
@@ -441,7 +588,9 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
             throw new IllegalStateException("Payment must be PAID before confirm: " + payment.getStatus());
         }
 
+        String from = payment.getStatus().name();
         payment.changeStatus(PaymentStatus.CONFIRMED);
+        recordEvent(payment, "PAYMENT_CONFIRMED", from, payment.getStatus().name(), null, payment.getPgOrderId());
         payment.setUpdatedAt(now);
         seatRepository.reserveSeatsByBookingId(payment.getBookingId());
 
@@ -479,6 +628,268 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
         }
     }
 
-    
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> getRefundRequiredPayments(Long userId) {
+        if (userId == null) {
+            throw new AccessDeniedException("인증 사용자 정보가 없습니다.");
+        }
+        List<Payment> payments = paymentRepository.findTop50ByUserIdAndStatusOrderByUpdatedAtDesc(
+                userId,
+                PaymentStatus.REFUND_REQUIRED
+        );
+        List<Map<String, Object>> rows = new ArrayList<>();
+
+        for (Payment p : payments) {
+            Map<String, Object> row = new HashMap<>();
+            row.put("paymentId", p.getId());
+            row.put("bookingId", p.getBookingId());
+            row.put("amount", p.getAmount());
+            row.put("status", p.getStatus().name());
+            row.put("pgOrderId", p.getPgOrderId());
+            row.put("updatedAt", p.getUpdatedAt());
+            rows.add(row);
+        }
+
+        return rows;
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> getMyPaymentHistory(Long userId) {
+        if (userId == null) {
+            throw new AccessDeniedException("인증 사용자 정보가 없습니다.");
+        }
+
+        List<Payment> payments = paymentRepository.findTop100ByUserIdOrderByUpdatedAtDesc(userId);
+        List<Map<String, Object>> rows = new ArrayList<>();
+
+        for (Payment payment : payments) {
+            Map<String, Object> row = new HashMap<>();
+            row.put("paymentId", payment.getId());
+            row.put("bookingId", payment.getBookingId());
+            row.put("paymentStatus", payment.getStatus().name());
+            row.put("amount", payment.getAmount());
+            row.put("orderName", payment.getOrderName());
+            row.put("pgOrderId", payment.getPgOrderId());
+            row.put("createdAt", payment.getCreatedAt());
+            row.put("submittedAt", payment.getSubmittedAt());
+            row.put("paidAt", payment.getCompletedAt());
+            row.put("updatedAt", payment.getUpdatedAt());
+            row.put("canRefund", payment.getStatus() == PaymentStatus.REFUND_REQUIRED);
+
+            Booking booking = bookingRepository.findById(payment.getBookingId()).orElse(null);
+            if (booking != null) {
+                row.put("bookingStatus", booking.getStatus());
+                row.put("bookingConfirmedAt", booking.getConfirmedAt());
+                row.put("bookingCanceledAt", booking.getCanceledAt());
+            } else {
+                row.put("bookingStatus", null);
+                row.put("bookingConfirmedAt", null);
+                row.put("bookingCanceledAt", null);
+            }
+
+            BookingRepository.BookingConcertInfo concertInfo = bookingRepository.findBookingConcertInfo(payment.getBookingId())
+                    .orElse(null);
+            if (concertInfo != null) {
+                row.put("concertName", concertInfo.getConcertTitle());
+                row.put("concertVenue", concertInfo.getConcertVenue());
+                Instant showTime = concertInfo.getShowTime();
+                row.put(
+                        "showDateTime",
+                        showTime == null ? null : OffsetDateTime.ofInstant(showTime, ZoneOffset.UTC)
+                );
+            } else {
+                row.put("concertName", null);
+                row.put("concertVenue", null);
+                row.put("showDateTime", null);
+            }
+
+            List<Object[]> seatRows = bookingItemRepository.findBookedSeatDetails(payment.getBookingId());
+            List<Map<String, Object>> seats = new ArrayList<>();
+            List<String> seatLabels = new ArrayList<>();
+            for (Object[] s : seatRows) {
+                String section = s[1] == null ? null : s[1].toString();
+                Integer rowNumber = toInteger(s[2]);
+                Integer seatNumber = toInteger(s[3]);
+                Map<String, Object> seat = new HashMap<>();
+                seat.put("seatId", toLong(s[0]));
+                seat.put("section", section);
+                seat.put("rowNumber", rowNumber);
+                seat.put("seatNumber", seatNumber);
+                seat.put("grade", s[4] == null ? null : s[4].toString());
+                seat.put("price", toBigDecimal(s[5]));
+                seats.add(seat);
+                if (section != null && rowNumber != null && seatNumber != null) {
+                    seatLabels.add(section + "-" + rowNumber + "-" + seatNumber);
+                }
+            }
+            row.put("seatCount", seats.size());
+            row.put("seatLabels", seatLabels);
+            row.put("seats", seats);
+
+            rows.add(row);
+        }
+
+        return rows;
+    }
+
+    @Transactional
+    public Map<String, Object> requestRefund(UUID paymentId, Long userId, String reasonCode) {
+        Payment payment = paymentRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
+        ensureOwner(payment, userId);
+
+        if (payment.getStatus() != PaymentStatus.REFUND_REQUIRED) {
+            throw new IllegalStateException("Payment is not REFUND_REQUIRED: " + payment.getStatus());
+        }
+
+        Refund existing = refundRepository.findTopByPaymentIdOrderByCreatedAtDesc(paymentId).orElse(null);
+        if (existing != null && ("REQUESTED".equalsIgnoreCase(existing.getStatus())
+                || "COMPLETED".equalsIgnoreCase(existing.getStatus()))) {
+            Map<String, Object> already = new HashMap<>();
+            already.put("refundId", existing.getId());
+            already.put("paymentId", existing.getPaymentId());
+            already.put("status", existing.getStatus());
+            already.put("amount", existing.getAmount());
+            already.put("requestedAt", existing.getRequestedAt());
+            return already;
+        }
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        Refund refund = new Refund();
+        refund.setPaymentId(paymentId);
+        refund.setStatus("REQUESTED");
+        refund.setReasonCode((reasonCode == null || reasonCode.isBlank()) ? "EXPIRED_AFTER_PAY" : reasonCode);
+        refund.setAmount(BigDecimal.valueOf(payment.getAmount() == null ? 0L : payment.getAmount()));
+        refund.setRequestedAt(now);
+        refund.setCreatedAt(now);
+        refund.setUpdatedAt(now);
+        Refund saved = refundRepository.save(refund);
+
+        recordEvent(payment, "REFUND_REQUESTED", payment.getStatus().name(), payment.getStatus().name(), null, payment.getPgOrderId());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("refundId", saved.getId());
+        response.put("paymentId", saved.getPaymentId());
+        response.put("status", saved.getStatus());
+        response.put("reasonCode", saved.getReasonCode());
+        response.put("amount", saved.getAmount());
+        response.put("requestedAt", saved.getRequestedAt());
+        return response;
+    }
+
+    @Transactional
+    public Map<String, Object> completeRefund(UUID paymentId, Long userId, String paymentStatus, String pgRefundId) {
+        Payment payment = paymentRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
+        ensureOwner(payment, userId);
+
+        if (payment.getStatus() != PaymentStatus.REFUND_REQUIRED) {
+            throw new IllegalStateException("Payment is not REFUND_REQUIRED: " + payment.getStatus());
+        }
+
+        Refund refund = refundRepository.findTopByPaymentIdOrderByCreatedAtDesc(paymentId)
+                .orElseThrow(() -> new IllegalStateException("No refund request found for payment: " + paymentId));
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        refund.setStatus("COMPLETED");
+        refund.setCompletedAt(now);
+        refund.setUpdatedAt(now);
+        if (pgRefundId != null && !pgRefundId.isBlank()) {
+            refund.setPgRefundId(pgRefundId);
+        }
+
+        PaymentStatus target = "CANCELED".equalsIgnoreCase(paymentStatus)
+                ? PaymentStatus.CANCELED
+                : PaymentStatus.REFUNDED;
+        String from = payment.getStatus().name();
+        payment.changeStatus(target);
+        payment.setUpdatedAt(now);
+        recordEvent(payment, "REFUND_COMPLETED", from, payment.getStatus().name(), null, payment.getPgOrderId());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("paymentId", payment.getId());
+        response.put("paymentStatus", payment.getStatus().name());
+        response.put("refundId", refund.getId());
+        response.put("refundStatus", refund.getStatus());
+        response.put("completedAt", refund.getCompletedAt());
+        response.put("pgRefundId", refund.getPgRefundId());
+        return response;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getOpsSummary() {
+        long total = paymentRepository.count();
+        long expired = paymentRepository.countByStatus(PaymentStatus.EXPIRED);
+        long refundRequired = paymentRepository.countByStatus(PaymentStatus.REFUND_REQUIRED);
+        long webhookDoneReceived = paymentEventRepository.countByEventType("WEBHOOK_DONE_RECEIVED");
+        long duplicateWebhookDone = paymentEventRepository.countDuplicateDoneWebhookEvents();
+
+        double expiredRate = total == 0 ? 0.0 : (expired * 100.0) / total;
+        double refundRequiredRate = total == 0 ? 0.0 : (refundRequired * 100.0) / total;
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("totalPayments", total);
+        result.put("expiredPayments", expired);
+        result.put("expiredRatePercent", Math.round(expiredRate * 100.0) / 100.0);
+        result.put("refundRequiredPayments", refundRequired);
+        result.put("refundRequiredRatePercent", Math.round(refundRequiredRate * 100.0) / 100.0);
+        result.put("webhookDoneReceived", webhookDoneReceived);
+        result.put("duplicateWebhookDoneEstimated", duplicateWebhookDone);
+        return result;
+    }
+
+    private void recordEvent(
+            Payment payment,
+            String eventType,
+            String fromStatus,
+            String toStatus,
+            String payloadJson,
+            String pgEventId
+    ) {
+        PaymentEvent ev = new PaymentEvent();
+        ev.setPaymentId(payment.getId());
+        ev.setEventType(eventType);
+        ev.setFromStatus(fromStatus);
+        ev.setToStatus(toStatus);
+        ev.setIdempotencyKey(payment.getIdempotencyKey());
+        ev.setPgEventId(pgEventId);
+        ev.setPayloadJson(payloadJson);
+        ev.setCreatedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        paymentEventRepository.save(ev);
+    }
+
+    private void ensureOwner(Payment payment, Long userId) {
+        if (userId == null || payment.getUserId() == null || !payment.getUserId().equals(userId)) {
+            throw new AccessDeniedException("본인 결제만 조회/처리할 수 있습니다.");
+        }
+    }
+
+    private Long toLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        return ((Number) value).longValue();
+    }
+
+    private Integer toInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        return ((Number) value).intValue();
+    }
+
+    private BigDecimal toBigDecimal(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof BigDecimal bd) {
+            return bd;
+        }
+        if (value instanceof Number n) {
+            return BigDecimal.valueOf(n.doubleValue());
+        }
+        return new BigDecimal(value.toString());
+    }
+
 
 }

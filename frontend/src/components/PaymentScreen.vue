@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ANONYMOUS, loadTossPayments } from '@tosspayments/tosspayments-sdk';
 import { Loader2 } from 'lucide-vue-next';
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { createPayment, submitPayment } from '../data/payments';
+import { apiRequest, ApiError } from '../services/api';
 import { getAuthUser, getToken } from '../services/auth';
 import { leaveSeatScreen } from '../services/seat';
 import type { BookingData } from '../types';
@@ -22,6 +23,100 @@ const agreements = reactive({
   refund: false
 });
 const manualBookingId = ref('');
+const payerName = ref('');
+const payerPhone = ref('');
+const payerEmail = ref('');
+watch(
+  () => props.bookingData.bookingId,
+  (bookingId) => {
+    manualBookingId.value = bookingId ?? '';
+  },
+  { immediate: true }
+);
+
+interface BookingLookupResponse {
+  userId?: number;
+  user_id?: number;
+}
+
+interface MyInfoResponse {
+  userId: number;
+  email: string;
+  name: string;
+  phone: string;
+}
+
+const extractBookingUserId = (booking: BookingLookupResponse): number | null => {
+  if (Number.isFinite(booking.userId)) {
+    return Number(booking.userId);
+  }
+  if (Number.isFinite(booking.user_id)) {
+    return Number(booking.user_id);
+  }
+  return null;
+};
+
+const loadPayerInfo = async () => {
+  const bookingId = (props.bookingData.bookingId || manualBookingId.value || '').trim();
+  const token = getToken();
+  const authUser = getAuthUser();
+
+  if (authUser) {
+    payerName.value = authUser.name ?? '';
+    payerEmail.value = authUser.email ?? '';
+  }
+
+  if (!token) {
+    return;
+  }
+
+  try {
+    const me = await apiRequest<MyInfoResponse>('/api/users/me', {
+      method: 'GET',
+      token
+    });
+
+    if (bookingId) {
+      try {
+        const booking = await apiRequest<BookingLookupResponse>(`/api/bookings/${bookingId}`, {
+          method: 'GET',
+          token
+        });
+        const bookingUserId = extractBookingUserId(booking);
+        if (bookingUserId && bookingUserId !== me.userId) {
+          console.warn('[PaymentScreen] booking user mismatch', {
+            bookingId,
+            bookingUserId,
+            loginUserId: me.userId
+          });
+        }
+      } catch (bookingError) {
+        console.warn('[PaymentScreen] booking lookup skipped', bookingError);
+      }
+    }
+
+    payerName.value = me.name ?? '';
+    payerPhone.value = me.phone ?? '';
+    payerEmail.value = me.email ?? '';
+  } catch (error) {
+    if (error instanceof ApiError) {
+      console.error('[PaymentScreen] payer info load failed', {
+        status: error.status,
+        message: error.message
+      });
+      return;
+    }
+    console.error('[PaymentScreen] payer info load failed', error);
+  }
+};
+
+watch(
+  () => props.bookingData.bookingId,
+  () => {
+    void loadPayerInfo();
+  },
+  { immediate: true }
+);
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
@@ -96,7 +191,7 @@ const handlePayment = async () => {
     }
 
     const created = await createPayment({ bookingId, userId: authUser.userId }, token);
-    const submitted = await submitPayment(created.paymentId, authUser.userId, token);
+    const submitted = await submitPayment(created.paymentId, token);
 
     const amount = submitted.amount;
     const orderId = submitted.orderId;
@@ -153,6 +248,7 @@ onMounted(() => {
   skipLeaveCleanup.value = false;
   hasSentLeave.value = false;
   window.addEventListener('pagehide', leaveSeatOnExit);
+  void loadPayerInfo();
 });
 
 onBeforeUnmount(() => {
@@ -182,14 +278,44 @@ onBeforeUnmount(() => {
                 <input
                   v-model="manualBookingId"
                   type="text"
-                  class="w-full border border-[#ddd] px-3 py-2 text-sm sm:max-w-xs"
-                  placeholder="bookingId 입력"
+                  class="w-full border border-[#ddd] bg-[#f5f6f8] px-3 py-2 text-sm text-[#333] sm:max-w-xs"
+                  readonly
                 />
               </div>
             </div>
-            <div class="flex flex-col border-b border-[#e0e0e0] sm:flex-row"><div class="flex w-full items-center bg-[#f9f9f9] p-3 text-sm font-medium text-[#666] sm:w-32">이름</div><div class="flex-1 p-3"><input type="text" class="w-full border border-[#ddd] px-3 py-2 text-sm sm:max-w-xs" placeholder="홍길동" /></div></div>
-            <div class="flex flex-col border-b border-[#e0e0e0] sm:flex-row"><div class="flex w-full items-center bg-[#f9f9f9] p-3 text-sm font-medium text-[#666] sm:w-32">연락처</div><div class="flex flex-1 flex-col gap-2 p-3 sm:flex-row sm:items-center sm:space-x-2 sm:gap-0"><input type="text" class="w-full border border-[#ddd] px-3 py-2 text-sm sm:max-w-xs" placeholder="010-0000-0000" /><button class="rounded-sm bg-[#666] px-3 py-2 text-xs text-white hover:bg-[#555]">인증요청</button></div></div>
-            <div class="flex flex-col border-b border-[#e0e0e0] sm:flex-row"><div class="flex w-full items-center bg-[#f9f9f9] p-3 text-sm font-medium text-[#666] sm:w-32">이메일</div><div class="flex-1 p-3"><input type="email" class="w-full border border-[#ddd] px-3 py-2 text-sm sm:max-w-xs" placeholder="example@email.com" /></div></div>
+            <div class="flex flex-col border-b border-[#e0e0e0] sm:flex-row">
+              <div class="flex w-full items-center bg-[#f9f9f9] p-3 text-sm font-medium text-[#666] sm:w-32">이름</div>
+              <div class="flex-1 p-3">
+                <input
+                  v-model="payerName"
+                  type="text"
+                  class="w-full border border-[#ddd] bg-[#f5f6f8] px-3 py-2 text-sm text-[#333] sm:max-w-xs"
+                  readonly
+                />
+              </div>
+            </div>
+            <div class="flex flex-col border-b border-[#e0e0e0] sm:flex-row">
+              <div class="flex w-full items-center bg-[#f9f9f9] p-3 text-sm font-medium text-[#666] sm:w-32">연락처</div>
+              <div class="flex-1 p-3">
+                <input
+                  v-model="payerPhone"
+                  type="text"
+                  class="w-full border border-[#ddd] bg-[#f5f6f8] px-3 py-2 text-sm text-[#333] sm:max-w-xs"
+                  readonly
+                />
+              </div>
+            </div>
+            <div class="flex flex-col border-b border-[#e0e0e0] sm:flex-row">
+              <div class="flex w-full items-center bg-[#f9f9f9] p-3 text-sm font-medium text-[#666] sm:w-32">이메일</div>
+              <div class="flex-1 p-3">
+                <input
+                  v-model="payerEmail"
+                  type="email"
+                  class="w-full border border-[#ddd] bg-[#f5f6f8] px-3 py-2 text-sm text-[#333] sm:max-w-xs"
+                  readonly
+                />
+              </div>
+            </div>
           </div>
         </section>
 
