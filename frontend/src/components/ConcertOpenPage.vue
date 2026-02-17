@@ -33,7 +33,7 @@ const openAt = computed(() => {
 
 const remainingMs = computed(() => Math.max(0, openAt.value.getTime() - now.value));
 const isOpen = computed(() => remainingMs.value <= 0);
-const isLastMinute = computed(() => !isOpen.value && remainingMs.value <= 60_000);
+const isLastMinute = computed(() => !isOpen.value && remainingMs.value <= 30_000);
 
 const formattedOpenAt = computed(() => {
   const d = openAt.value;
@@ -116,7 +116,7 @@ onBeforeUnmount(() => {
           >
             {{ isOpen ? '00:00:00' : countdownLabel }}
           </p>
-          <p v-if="isLastMinute" class="mt-2 text-sm font-bold text-red-600">1분 이내 오픈 예정</p>
+          <p v-if="isLastMinute" class="mt-2 text-sm font-bold text-red-600">30초 이내 오픈 예정</p>
           <p v-else-if="isOpen" class="mt-2 text-sm font-bold text-emerald-600">예매가 시작되었습니다.</p>
         </div>
 
