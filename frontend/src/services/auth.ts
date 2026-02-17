@@ -41,8 +41,42 @@ export function clearAuthUser(): void {
   localStorage.removeItem(USER_KEY);
 }
 
+function decodeJwtPayload(token: string): { exp?: number } | null {
+  const parts = token.split('.');
+  if (parts.length !== 3) {
+    return null;
+  }
+
+  try {
+    const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
+    const decoded = atob(padded);
+    return JSON.parse(decoded) as { exp?: number };
+  } catch {
+    return null;
+  }
+}
+
+function isTokenExpired(token: string): boolean {
+  const payload = decodeJwtPayload(token);
+  if (!payload?.exp) {
+    return false;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  return payload.exp <= now;
+}
+
 export function isLoggedIn(): boolean {
-  return Boolean(getToken());
+  const token = getToken();
+  const user = getAuthUser();
+
+  if (!token || !user || isTokenExpired(token)) {
+    clearAuth();
+    return false;
+  }
+
+  return true;
 }
 
 export function clearAuth(): void {
