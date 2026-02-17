@@ -33,6 +33,12 @@ public class SeatMapService {
                 .build();
     }
 
+    public SeatMapResponse getSeatMapBySchedule(Long scheduleId, Long userId) {
+        Long concertId = seatRepository.findConcertIdByScheduleId(scheduleId)
+                .orElseThrow(() -> new IllegalArgumentException("유효하지 않은 scheduleId입니다. " + scheduleId));
+        return getSeatMap(concertId, scheduleId, userId);
+    }
+
     private SeatMapResponse.SeatItem mapToSeatItem(Long concertId, Long scheduleId, Long userId, Object[] row) {
         Long seatId = ((Number) row[0]).longValue();
         String section = (String) row[1];

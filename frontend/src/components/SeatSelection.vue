@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { AlertCircle, X } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { ApiError } from '../services/api';
+import { getSeatMap, getSeatMapBySchedule, holdSeat, type SeatMapItem } from '../services/seat';
 import type { Seat } from '../types';
 
 const emit = defineEmits<{
@@ -29,7 +31,11 @@ const timeLeft = ref(420);
 const selectedSection = ref<SectionMeta | null>(null);
 const selectedSeats = ref<Seat[]>([]);
 const showConflictModal = ref(false);
+const holdingSeatMap = ref<Record<string, boolean>>({});
+const seatStatusMap = ref<Record<string, string>>({});
 let timer: ReturnType<typeof setInterval> | null = null;
+const concertId = computed(() => Number(props.concertId ?? 1));
+const scheduleId = computed(() => (props.scheduleId ? Number(props.scheduleId) : null));
 
 const centerX = 50;
 const centerY = 28;
@@ -131,6 +137,8 @@ onMounted(() => {
     }
     timeLeft.value -= 1;
   }, 1000);
+
+  void loadSeatMap();
 });
 
 onBeforeUnmount(() => {
@@ -143,6 +151,26 @@ const formatTime = (seconds: number) => {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${s.toString().padStart(2, '0')}`;
+};
+
+const buildSeatKey = (section: string, row: number, col: number) => `${section}-${row}-${col}`;
+
+const loadSeatMap = async () => {
+  try {
+    const response = scheduleId.value
+      ? await getSeatMapBySchedule(scheduleId.value)
+      : await getSeatMap(concertId.value);
+    const nextStatusMap: Record<string, string> = {};
+
+    response.seats.forEach((seat: SeatMapItem) => {
+      const key = buildSeatKey(seat.section, seat.rowNumber, seat.seatNumber);
+      nextStatusMap[key] = seat.status;
+    });
+
+    seatStatusMap.value = nextStatusMap;
+  } catch (error) {
+    console.error('좌석 상태 조회 실패', error);
+  }
 };
 
 const progressWidth = computed(() => `${(timeLeft.value / 420) * 100}%`);
@@ -158,8 +186,9 @@ const currentSectionSeats = computed(() => {
 
   for (let row = 1; row <= rows; row += 1) {
     for (let col = 1; col <= cols; col += 1) {
-      const seatId = `${id}-${row}-${col}`;
-      const isOccupied = (row + col + id.charCodeAt(0)) % 7 === 0;
+      const seatId = buildSeatKey(id, row, col);
+      const status = seatStatusMap.value[seatId];
+      const isOccupied = status === 'RESERVED';
       const isSelected = selectedSeats.value.some((seat) => seat.id === seatId);
       seats.push({ row, col, id: seatId, isOccupied, isSelected });
     }
@@ -186,6 +215,15 @@ const getSeatState = (row: number, col: number) => {
   return seatStateMap.value.get(`${selectedSection.value.id}-${row}-${col}`) ?? { isOccupied: false, isSelected: false };
 };
 
+const setHolding = (seatId: string, isHolding: boolean) => {
+  holdingSeatMap.value = {
+    ...holdingSeatMap.value,
+    [seatId]: isHolding
+  };
+};
+
+const isHoldingSeat = (seatId: string) => Boolean(holdingSeatMap.value[seatId]);
+
 const goToSection = (section: SectionMeta) => {
   selectedSection.value = section;
 };
@@ -194,45 +232,65 @@ const resetSection = () => {
   selectedSection.value = null;
 };
 
-const toggleSeat = (row: number, col: number) => {
+const toggleSeat = async (row: number, col: number) => {
   if (!selectedSection.value) {
     return;
   }
 
-  const seatId = `${selectedSection.value.id}-${row}-${col}`;
-  const isOccupied = (row + col + selectedSection.value.id.charCodeAt(0)) % 7 === 0;
+  const seatId = buildSeatKey(selectedSection.value.id, row, col);
+  const isOccupied = seatStatusMap.value[seatId] === 'RESERVED';
 
   if (isOccupied) {
     return;
   }
 
-  const exists = selectedSeats.value.find((seat) => seat.id === seatId);
-  if (exists) {
-    selectedSeats.value = selectedSeats.value.filter((seat) => seat.id !== seatId);
+  if (isHoldingSeat(seatId)) {
     return;
   }
 
-  if (selectedSeats.value.length >= 4) {
+  const exists = selectedSeats.value.find((seat) => seat.id === seatId);
+
+  if (!exists && selectedSeats.value.length >= 4) {
     alert('최대 4매까지만 선택 가능합니다.');
     return;
   }
 
-  if (Math.random() > 0.9) {
-    showConflictModal.value = true;
+  setHolding(seatId, true);
+
+  try {
+    if (!scheduleId.value) {
+      alert('회차 정보가 없어 좌석 선점을 진행할 수 없습니다.');
+      return;
+    }
+
+    await holdSeat(scheduleId.value, selectedSection.value.id, row, col);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) {
+      showConflictModal.value = true;
+      return;
+    }
+
+    alert(error instanceof Error ? error.message : '좌석 선점 요청 중 오류가 발생했습니다.');
     return;
+  } finally {
+    setHolding(seatId, false);
   }
 
-  selectedSeats.value = [
-    ...selectedSeats.value,
-    {
-      id: props.scheduleId ? `${props.scheduleId}-${seatId}` : seatId,
-      section: selectedSection.value.id,
-      row,
-      col,
-      price: selectedSection.value.price,
-      grade: selectedSection.value.grade
-    }
-  ];
+  if (exists) {
+    selectedSeats.value = selectedSeats.value.filter((seat) => seat.id !== seatId);
+  } else {
+    selectedSeats.value = [
+      ...selectedSeats.value,
+      {
+        id: props.scheduleId ? `${props.scheduleId}-${seatId}` : seatId,
+        section: selectedSection.value.id,
+        row,
+        col,
+        price: selectedSection.value.price,
+        grade: selectedSection.value.grade
+      }
+    ];
+  }
 };
 
 const removeSeat = (seat: Seat) => {
@@ -336,8 +394,8 @@ const totalVenueSeats = computed(() => sections.reduce((sum, section) => sum + s
                 v-for="col in selectedSection.cols"
                 :key="`${selectedSection.id}-${row}-${col}`"
                 class="flex h-7 items-center justify-center rounded border text-[10px] transition-colors sm:h-8"
-                :class="getSeatState(row, col).isOccupied ? 'cursor-not-allowed border-slate-300 bg-slate-200 text-slate-400' : getSeatState(row, col).isSelected ? 'border-[#f97316] bg-[#f97316] font-bold text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-orange-50'"
-                :disabled="getSeatState(row, col).isOccupied"
+                :class="isHoldingSeat(`${selectedSection.id}-${row}-${col}`) ? 'cursor-wait border-slate-300 bg-slate-100 text-slate-400' : getSeatState(row, col).isOccupied ? 'cursor-not-allowed border-slate-300 bg-slate-200 text-slate-400' : getSeatState(row, col).isSelected ? 'border-[#f97316] bg-[#f97316] font-bold text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-orange-50'"
+                :disabled="getSeatState(row, col).isOccupied || isHoldingSeat(`${selectedSection.id}-${row}-${col}`)"
                 :title="`${row}열 ${col}번`"
                 @click="toggleSeat(row, col)"
               >

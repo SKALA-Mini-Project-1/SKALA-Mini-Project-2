@@ -94,4 +94,16 @@ public class Seat {
     public boolean isHoldExpired() {
         return this.status == SeatStatus.HOLD && (this.heldUntil == null || this.heldUntil.isBefore(LocalDateTime.now()));
     }
+
+    public Long getId() {
+        return id;
+    }
+
+    public SeatStatus getStatus() {
+        return status;
+    }
+
+    public Long getScheduleId() {
+        return scheduleId;
+    }
 }
