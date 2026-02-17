@@ -35,6 +35,7 @@ import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.TossWebh
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.Payment;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.PaymentStatus;
 import com.example.SKALA_Mini_Project_1.modules.payments.repository.PaymentRepository;
+import org.springframework.data.redis.core.RedisTemplate;
 
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -49,6 +50,7 @@ public class PaymentService {
     private final com.example.SKALA_Mini_Project_1.modules.payments.client.TossPaymentsClient tossPaymentsClient;
     private final com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository bookingRepository;
     private final BookingItemRepository bookingItemRepository;
+    private final RedisTemplate<String, String> redisTemplate;
 
     private static final Map<PaymentStatus, Set<PaymentStatus>> transitionMap = new EnumMap<>(PaymentStatus.class);
 
@@ -359,8 +361,16 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
         payment.setCompletedAt(OffsetDateTime.now());
         payment.changeStatus(PaymentStatus.PAID);
 
+        // ❗️ active 감소(대기열 관련 코드) ❗️
+        Long active = redisTemplate.opsForValue()
+            .decrement("seat:active:concert:1");
+
+        System.out.println("ACTIVE 감소 → 현재 인원: " + active);
+
         Booking booking = bookingRepository.findById(payment.getBookingId())
                 .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
+        
+
 
         booking.setStatus("CONFIRMED");
         booking.setConfirmedAt(OffsetDateTime.now());

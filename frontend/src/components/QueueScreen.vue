@@ -9,7 +9,8 @@ const emit = defineEmits<{
   queueComplete: [];
 }>();
 
-const concertId = 1;
+// concertId는 실제로는 props나 route param 등으로 받아와야 하지만, 편의상 하드코딩
+const concertId: number = 1;
 
 const position = ref(0);
 const progress = ref(0);
