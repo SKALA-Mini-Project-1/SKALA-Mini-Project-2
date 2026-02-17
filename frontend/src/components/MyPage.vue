@@ -3,11 +3,7 @@ import { AlertCircle, LoaderCircle, Mail, Phone, QrCode, Trophy, User2, X } from
 import { computed, onMounted, ref } from 'vue';
 import { apiRequest, ApiError } from '../services/api';
 import { clearAuth, getAuthUser, getToken, setAuthUser } from '../services/auth';
-import {
-  cancelBookingHistory,
-  ensureDummyBookingHistory,
-  getBookingHistoryByUser
-} from '../services/bookingHistory';
+import { fetchMyPaymentHistory } from '../services/paymentHistory';
 import type { BookingHistoryRecord } from '../types';
 
 interface MyInfoResponse {
@@ -41,6 +37,7 @@ const bookingCards = computed(() =>
   bookings.value.map((booking) => ({
     ...booking,
     statusLabel: booking.status === 'booked' ? '예매완료' : '취소완료',
+    scheduleLabel: booking.session ? `${booking.date} ${booking.session}` : booking.date,
     seatSummary:
       booking.seatLabels.length > 0
         ? booking.seatLabels.join(', ')
@@ -73,13 +70,23 @@ const queuePriorityBoostMs = computed(() => {
   return score;
 });
 
-const loadBookings = () => {
-  if (!myInfo.value) {
+const loadBookings = async () => {
+  const token = getToken();
+  if (!myInfo.value || !token) {
     bookings.value = [];
     return;
   }
-  ensureDummyBookingHistory(myInfo.value.userId);
-  bookings.value = getBookingHistoryByUser(myInfo.value.userId);
+
+  try {
+    bookings.value = await fetchMyPaymentHistory(token, myInfo.value.userId);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      clearAuth();
+      emit('loggedOut');
+      return;
+    }
+    bookings.value = [];
+  }
 };
 
 const loadMyInfo = async () => {
@@ -101,7 +108,7 @@ const loadMyInfo = async () => {
     });
     editName.value = myInfo.value.name;
     editPhone.value = myInfo.value.phone;
-    loadBookings();
+    await loadBookings();
   } catch (error) {
     profileError.value = error instanceof ApiError ? error.message : '사용자 정보를 불러오지 못했습니다.';
 
@@ -212,19 +219,6 @@ const logout = async () => {
 const openQr = (booking: BookingHistoryRecord) => {
   selectedBooking.value = booking;
   showQr.value = true;
-};
-
-const cancelBooking = (bookingNumber: string) => {
-  if (!myInfo.value) {
-    return;
-  }
-  cancelBookingHistory(myInfo.value.userId, bookingNumber);
-  loadBookings();
-  if (selectedBooking.value?.bookingNumber === bookingNumber) {
-    selectedBooking.value = getBookingHistoryByUser(myInfo.value.userId).find(
-      (booking) => booking.bookingNumber === bookingNumber
-    ) ?? null;
-  }
 };
 
 onMounted(() => {
@@ -393,7 +387,7 @@ onMounted(() => {
 
             <div class="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
               <div class="w-full space-y-1 text-sm">
-                <div class="flex flex-col gap-0.5 sm:flex-row"><span class="w-16 text-[#6c83a0]">관람일시</span><span class="text-[#2a425c]">{{ booking.date }} {{ booking.session }}회차</span></div>
+                <div class="flex flex-col gap-0.5 sm:flex-row"><span class="w-16 text-[#6c83a0]">관람일시</span><span class="text-[#2a425c]">{{ booking.scheduleLabel }}</span></div>
                 <div class="flex flex-col gap-0.5 sm:flex-row"><span class="w-16 text-[#6c83a0]">공연장</span><span class="text-[#2a425c]">{{ booking.concertVenue }}</span></div>
                 <div class="flex flex-col gap-0.5 sm:flex-row"><span class="w-16 text-[#6c83a0]">좌석정보</span><span class="text-[#2a425c]">{{ booking.seatSummary }}</span></div>
                 <div class="flex flex-col gap-0.5 sm:flex-row"><span class="w-16 text-[#6c83a0]">결제금액</span><span class="font-extrabold text-[#163452]">{{ booking.totalAmount.toLocaleString() }}원</span></div>
@@ -406,12 +400,6 @@ onMounted(() => {
                 >
                   <QrCode :size="16" class="mr-2" />
                   모바일 티켓
-                </button>
-                <button
-                  class="whitespace-nowrap rounded-lg border border-[#d7e2ee] bg-white px-4 py-2 text-sm font-bold text-[#4e6782] hover:bg-[#f5f9fd]"
-                  @click="cancelBooking(booking.bookingNumber)"
-                >
-                  예매취소
                 </button>
               </div>
             </div>
@@ -428,7 +416,7 @@ onMounted(() => {
         </div>
         <div class="flex flex-col items-center p-5 text-center sm:p-8">
           <h3 class="mb-1 text-lg font-extrabold text-[#193451]">{{ selectedBooking.concertTitle }}</h3>
-          <p class="mb-2 text-sm text-[#62809f]">{{ selectedBooking.date }} {{ selectedBooking.session }}회차</p>
+          <p class="mb-2 text-sm text-[#62809f]">{{ selectedBooking.session ? `${selectedBooking.date} ${selectedBooking.session}` : selectedBooking.date }}</p>
           <p class="mb-6 text-sm text-[#62809f]">{{ selectedBooking.seatLabels.join(', ') }}</p>
 
           <div class="mb-6 h-40 w-40 rounded-xl bg-gray-900 p-2 sm:h-48 sm:w-48">

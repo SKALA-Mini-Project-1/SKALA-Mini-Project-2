@@ -57,7 +57,7 @@ public class PaymentController {
         return ResponseEntity.ok(paymentService.createPayment(req.getBookingId(), userId));
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/{id:[0-9a-fA-F-]{36}}")
     @Operation(summary = "결제 단건 조회", description = "결제 ID로 현재 결제 상태 및 정보를 조회합니다.")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "조회 성공"),
