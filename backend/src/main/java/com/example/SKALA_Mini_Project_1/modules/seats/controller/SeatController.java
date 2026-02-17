@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.example.SKALA_Mini_Project_1.modules.seats.dto.BatchSeatHoldRequest;
 import com.example.SKALA_Mini_Project_1.modules.seats.dto.SeatSelectRequest;
 import com.example.SKALA_Mini_Project_1.modules.seats.service.SeatReservationService;
+import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
 
 
 import org.springframework.data.redis.core.RedisTemplate;
@@ -210,23 +211,53 @@ public class SeatController {
 
     // 대기열에서 입장 허용된 사용자만 접근 가능한 엔드포인트
     @GetMapping("/seats")
-        public ResponseEntity<?> enterSeat(@RequestParam String token) {
+    public ResponseEntity<?> enterSeat(
+                @RequestParam("token") String token,
+                @RequestParam("concertId") Long concertId,
+                @RequestParam("scheduleId") Long scheduleId
+        ) {
 
         String key = "seat:entry:" + token;
 
-        String userId = redisTemplate.opsForValue().get(key);
+        String tokenPayload = redisTemplate.opsForValue().get(key);
 
-        if (userId == null) {
+        if (tokenPayload == null) {
                 return ResponseEntity.status(403)
                         .body("유효하지 않은 접근");
+        }
+
+        String[] parts = tokenPayload.split(":");
+        if (parts.length != 2 && parts.length != 3) {
+            return ResponseEntity.status(403).body("토큰 형식 오류");
+        }
+
+        Long tokenConcertId;
+        Long tokenScheduleId = null;
+        try {
+            tokenConcertId = Long.parseLong(parts[1]);
+            if (parts.length == 3) {
+                tokenScheduleId = Long.parseLong(parts[2]);
+            }
+        } catch (NumberFormatException e) {
+            return ResponseEntity.status(403).body("토큰 형식 오류");
+        }
+
+        if (!concertId.equals(tokenConcertId)) {
+            return ResponseEntity.status(403).body("콘서트 정보 불일치");
+        }
+        if (tokenScheduleId != null && !scheduleId.equals(tokenScheduleId)) {
+            return ResponseEntity.status(403).body("회차 정보 불일치");
         }
 
         // 1회용 토큰 삭제
         redisTemplate.delete(key);
 
-        // 🔥 active 증가
-        redisTemplate.opsForValue()
-                .increment("seat:active:concert:1");
+        String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
+        Long active = redisTemplate.opsForValue()
+                .increment(activeKey);
+                
+        System.out.println("ACTIVE 증가 → 현재 인원: " + active);
+
 
         return ResponseEntity.ok("좌석 선택 화면 입장 성공");
         }

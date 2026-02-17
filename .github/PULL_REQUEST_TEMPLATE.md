@@ -28,7 +28,7 @@ Closes #
 <!-- 해당되는 항목 체크 -->
 - [ ] Front (Vue)
 - [ ] Back (Spring)
-- [ ] 둘 다
+- [ ] Infra
 
 ---
 

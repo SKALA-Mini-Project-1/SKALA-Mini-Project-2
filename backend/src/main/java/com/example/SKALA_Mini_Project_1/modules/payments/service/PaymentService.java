@@ -23,6 +23,7 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 
 import com.example.SKALA_Mini_Project_1.modules.bookings.domain.Booking;
+import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
 import com.example.SKALA_Mini_Project_1.modules.payments.client.TossConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingItemRepository;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmRequest;
@@ -35,6 +36,7 @@ import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.TossWebh
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.Payment;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.PaymentStatus;
 import com.example.SKALA_Mini_Project_1.modules.payments.repository.PaymentRepository;
+import org.springframework.data.redis.core.RedisTemplate;
 
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -49,6 +51,7 @@ public class PaymentService {
     private final com.example.SKALA_Mini_Project_1.modules.payments.client.TossPaymentsClient tossPaymentsClient;
     private final com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository bookingRepository;
     private final BookingItemRepository bookingItemRepository;
+    private final RedisTemplate<String, String> redisTemplate;
 
     private static final Map<PaymentStatus, Set<PaymentStatus>> transitionMap = new EnumMap<>(PaymentStatus.class);
 
@@ -361,6 +364,21 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
 
         Booking booking = bookingRepository.findById(payment.getBookingId())
                 .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
+        Long scheduleId = booking.getScheduleId();
+        Long concertId = bookingRepository.findConcertIdByBookingId(payment.getBookingId())
+                .orElseThrow(() -> new IllegalStateException("Concert not found for booking: " + payment.getBookingId()));
+
+        if (scheduleId != null) {
+            String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
+            Long active = redisTemplate.opsForValue().decrement(activeKey);
+            if (active == null || active < 0) {
+                redisTemplate.opsForValue().set(activeKey, "0");
+                active = 0L;
+            }
+            System.out.println("ACTIVE 감소 → 현재 인원: " + active);
+        }
+        
+
 
         booking.setStatus("CONFIRMED");
         booking.setConfirmedAt(OffsetDateTime.now());
