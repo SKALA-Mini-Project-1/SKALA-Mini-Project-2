@@ -8,6 +8,7 @@ const emit = defineEmits<{
 
 const props = defineProps<{
   concertId: string | null;
+  concertCode: string | null;
   scheduleId: string | null;
 }>();
 
@@ -25,23 +26,22 @@ const concertIdValue = computed(() => {
   return Number.isNaN(parsed) ? null : parsed;
 });
 
-const scheduleIdValue = computed(() => {
-  if (!props.scheduleId) {
-    return null;
+const concertCodeValue = computed(() => {
+  if (props.concertCode && props.concertCode.trim().length > 0) {
+    return props.concertCode.trim();
   }
-  const parsed = Number(props.scheduleId);
-  return Number.isNaN(parsed) ? null : parsed;
+  if (props.concertId) {
+    return props.concertId;
+  }
+  return null;
 });
 
-const canStartQueue = computed(() => concertIdValue.value !== null && scheduleIdValue.value !== null);
+const canStartQueue = computed(() => concertCodeValue.value !== null && concertIdValue.value !== null);
 
 const buildQueueUrl = (path: 'start' | 'status') => {
   const params = new URLSearchParams();
-  if (concertIdValue.value !== null) {
-    params.set('concertId', String(concertIdValue.value));
-  }
-  if (scheduleIdValue.value !== null) {
-    params.set('scheduleId', String(scheduleIdValue.value));
+  if (concertCodeValue.value) {
+    params.set('concertCode', concertCodeValue.value);
   }
   return `http://localhost:10010/api/ticketing/${path}?${params.toString()}`;
 };
@@ -49,7 +49,7 @@ const buildQueueUrl = (path: 'start' | 'status') => {
 // 1️⃣ 대기열 진입
 async function startQueue() {
   if (!canStartQueue.value) {
-    console.error('대기열 진입 실패: concertId가 없습니다.');
+    console.error('대기열 진입 실패: concertCode 또는 concertId가 없습니다.');
     return;
   }
 
@@ -58,7 +58,7 @@ async function startQueue() {
   console.log("START QUEUE CALLED");
   console.log("TOKEN:", token);
   console.log("CONCERT ID:", concertIdValue.value);
-  console.log("SCHEDULE ID:", props.scheduleId);
+  console.log("CONCERT CODE:", concertCodeValue.value);
 
   const res = await fetch(
     buildQueueUrl('start'),
@@ -100,7 +100,7 @@ async function checkStatus() {
       const seatToken = localStorage.getItem("ticketkorea_access_token");
 
       const seatRes = await fetch(
-        `http://localhost:8081/api/seats/seats?token=${data.entryToken}`,
+        `http://localhost:8081/api/seats/seats?token=${encodeURIComponent(data.entryToken)}&concertId=${concertIdValue.value}`,
         {
           headers: {
             Authorization: `Bearer ${seatToken}`

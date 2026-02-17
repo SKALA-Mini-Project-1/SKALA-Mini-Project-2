@@ -24,6 +24,7 @@ export interface ConcertSession {
 
 export interface ConcertItem {
   id: string
+  concertCode?: string
   title: string
   subtitle: string
   artist: string
@@ -85,6 +86,7 @@ export interface ConcertSession {
 
 export interface ConcertItem {
   id: string
+  concertCode?: string
   title: string
   subtitle: string
   artist: string
@@ -116,6 +118,7 @@ export interface BookingData {
   bookingId?: string | null
   bookingNumber: string | null
   concertId: string | null
+  concertCode: string | null
   scheduleId: string | null
   concertTitle: string | null
   concertVenue: string | null

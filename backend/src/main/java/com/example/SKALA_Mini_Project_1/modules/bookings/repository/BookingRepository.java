@@ -3,6 +3,7 @@ package com.example.SKALA_Mini_Project_1.modules.bookings.repository;
 import com.example.SKALA_Mini_Project_1.modules.bookings.domain.Booking;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
@@ -30,4 +31,15 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
             nativeQuery = true
     )
     Optional<BookingConcertInfo> findBookingConcertInfo(UUID bookingId);
+
+    @Query(
+            value = """
+                    SELECT s.concert_id
+                    FROM bookings b
+                    JOIN schedules s ON s.id = b.schedule_id
+                    WHERE b.id = :bookingId
+                    """,
+            nativeQuery = true
+    )
+    Optional<Long> findConcertIdByBookingId(@Param("bookingId") UUID bookingId);
 }

@@ -23,26 +23,24 @@ public class QueueController {
 
     @PostMapping("/start")
         public ResponseEntity<?> startTicketing(
-                @RequestParam Long concertId,
-                @RequestParam Long scheduleId,
+                @RequestParam String concertCode,
                 Authentication authentication
         ) {
 
         Long userId = (Long) authentication.getPrincipal();
 
-        TicketingStartResponse response =queueService.startTicketing(concertId, scheduleId, userId);
+        TicketingStartResponse response =queueService.startTicketing(concertCode, userId);
 
         return ResponseEntity.ok(response);
         }
 
      @GetMapping("/status")
         public QueueStatusResponse getStatus(
-                @RequestParam Long concertId,
-                @RequestParam Long scheduleId,
+                @RequestParam String concertCode,
                 Authentication authentication
         ) {
         Long userId = (Long) authentication.getPrincipal();
-        return queueService.getStatus(concertId, scheduleId, userId);
+        return queueService.getStatus(concertCode, userId);
         }
 
 //     @GetMapping("/rank")

@@ -361,10 +361,15 @@ public PaymentCreateResponse createPayment(PaymentCreateRequest req) {
         payment.setCompletedAt(OffsetDateTime.now());
         payment.changeStatus(PaymentStatus.PAID);
 
-        // ❗️ active 감소(대기열 관련 코드) ❗️
-        Long active = redisTemplate.opsForValue()
-            .decrement("seat:active:concert:1");
+        Long concertId = bookingRepository.findConcertIdByBookingId(payment.getBookingId())
+                .orElseThrow(() -> new IllegalStateException("Concert not found for booking: " + payment.getBookingId()));
 
+        String activeKey = "seat:active:concert:" + concertId;
+        Long active = redisTemplate.opsForValue().decrement(activeKey);
+        if (active == null || active < 0) {
+            redisTemplate.opsForValue().set(activeKey, "0");
+            active = 0L;
+        }
         System.out.println("ACTIVE 감소 → 현재 인원: " + active);
 
         Booking booking = bookingRepository.findById(payment.getBookingId())

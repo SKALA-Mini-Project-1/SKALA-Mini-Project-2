@@ -210,23 +210,42 @@ public class SeatController {
 
     // 대기열에서 입장 허용된 사용자만 접근 가능한 엔드포인트
     @GetMapping("/seats")
-        public ResponseEntity<?> enterSeat(@RequestParam("token") String token) {
+        public ResponseEntity<?> enterSeat(
+                @RequestParam("token") String token,
+                @RequestParam("concertId") Long concertId
+        ) {
 
         String key = "seat:entry:" + token;
 
-        String userId = redisTemplate.opsForValue().get(key);
+        String tokenPayload = redisTemplate.opsForValue().get(key);
 
-        if (userId == null) {
+        if (tokenPayload == null) {
                 return ResponseEntity.status(403)
                         .body("유효하지 않은 접근");
+        }
+
+        String[] parts = tokenPayload.split(":");
+        if (parts.length != 2) {
+            return ResponseEntity.status(403).body("토큰 형식 오류");
+        }
+
+        Long tokenConcertId;
+        try {
+            tokenConcertId = Long.parseLong(parts[1]);
+        } catch (NumberFormatException e) {
+            return ResponseEntity.status(403).body("토큰 형식 오류");
+        }
+
+        if (!concertId.equals(tokenConcertId)) {
+            return ResponseEntity.status(403).body("콘서트 정보 불일치");
         }
 
         // 1회용 토큰 삭제
         redisTemplate.delete(key);
 
-        // 🔥 active 증가
+        String activeKey = "seat:active:concert:" + concertId;
         Long active = redisTemplate.opsForValue()
-                .increment("seat:active:concert:1");
+                .increment(activeKey);
                 
         System.out.println("ACTIVE 증가 → 현재 인원: " + active);
 
