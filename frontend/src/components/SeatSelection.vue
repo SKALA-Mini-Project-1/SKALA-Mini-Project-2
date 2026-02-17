@@ -7,6 +7,11 @@ const emit = defineEmits<{
   complete: [seats: Seat[]];
 }>();
 
+const props = defineProps<{
+  concertId: string | null;
+  scheduleId: string | null;
+}>();
+
 const timeLeft = ref(420);
 const selectedSection = ref<string | null>(null);
 const selectedSeats = ref<Seat[]>([]);
@@ -70,7 +75,7 @@ const toggleSeat = (row: number, col: number, price: number, grade: string) => {
   selectedSeats.value = [
     ...selectedSeats.value,
     {
-      id: seatId,
+      id: props.scheduleId ? `${props.scheduleId}-${seatId}` : seatId,
       section: selectedSection.value,
       row,
       col,
@@ -89,7 +94,9 @@ const toggleSeat = (row: number, col: number, price: number, grade: string) => {
         <span class="text-sm">남은 시간</span>
         <span class="font-mono text-xl font-bold text-[#FF6B00]">{{ formatTime(timeLeft) }}</span>
       </div>
-      <div class="hidden text-xs text-gray-400 md:block">제한시간 내 결제를 완료해주세요.</div>
+      <div class="hidden text-xs text-gray-400 md:block">
+        콘서트 {{ props.concertId || '-' }} · 회차 {{ props.scheduleId || '-' }}
+      </div>
     </div>
     <div class="h-1 w-full bg-gray-800"><div class="h-full bg-gradient-to-r from-[#FF6B00] to-[#E8000B] transition-[width] duration-1000" :style="{ width: progressWidth }"></div></div>
 

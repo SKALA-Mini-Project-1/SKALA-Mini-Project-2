@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { AlertTriangle, Clock, Info, Loader2 } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
-
-const router = useRouter();
 
 const emit = defineEmits<{
   queueComplete: [];
 }>();
 
-const concertId = 1;
+const props = defineProps<{
+  concertId: string | null;
+  scheduleId: string | null;
+}>();
 
 const position = ref(0);
 const progress = ref(0);
@@ -17,16 +17,51 @@ const isSurge = ref(false);
 
 let queueTimer: ReturnType<typeof setInterval> | null = null;
 
+const concertIdValue = computed(() => {
+  if (!props.concertId) {
+    return null;
+  }
+  const parsed = Number(props.concertId);
+  return Number.isNaN(parsed) ? null : parsed;
+});
+
+const scheduleIdValue = computed(() => {
+  if (!props.scheduleId) {
+    return null;
+  }
+  const parsed = Number(props.scheduleId);
+  return Number.isNaN(parsed) ? null : parsed;
+});
+
+const canStartQueue = computed(() => concertIdValue.value !== null && scheduleIdValue.value !== null);
+
+const buildQueueUrl = (path: 'start' | 'status') => {
+  const params = new URLSearchParams();
+  if (concertIdValue.value !== null) {
+    params.set('concertId', String(concertIdValue.value));
+  }
+  if (scheduleIdValue.value !== null) {
+    params.set('scheduleId', String(scheduleIdValue.value));
+  }
+  return `http://localhost:10010/api/ticketing/${path}?${params.toString()}`;
+};
+
 // 1️⃣ 대기열 진입
 async function startQueue() {
+  if (!canStartQueue.value) {
+    console.error('대기열 진입 실패: concertId가 없습니다.');
+    return;
+  }
+
   const token = localStorage.getItem("ticketkorea_access_token");
 
   console.log("START QUEUE CALLED");
   console.log("TOKEN:", token);
-  console.log("CONCERT ID:", concertId);
+  console.log("CONCERT ID:", concertIdValue.value);
+  console.log("SCHEDULE ID:", props.scheduleId);
 
   const res = await fetch(
-    `http://localhost:10010/api/ticketing/start?concertId=${concertId}`,
+    buildQueueUrl('start'),
     {
       method: "POST",
       headers: {
@@ -40,11 +75,15 @@ async function startQueue() {
 
 
 async function checkStatus() {
+  if (!canStartQueue.value) {
+    return;
+  }
+
   try {
     const token = localStorage.getItem("ticketkorea_access_token");
 
     const res = await fetch(
-      `http://localhost:10010/api/ticketing/status?concertId=${concertId}`,
+      buildQueueUrl('status'),
       {
         headers: {
           Authorization: `Bearer ${token}`
@@ -71,7 +110,6 @@ async function checkStatus() {
 
       if (seatRes.ok) {
         emit("queueComplete");
-        router.push("/concert/seat");
       }
     } else {
       position.value = data.rank ?? 0;
@@ -85,6 +123,9 @@ async function checkStatus() {
 
 
 onMounted(async () => {
+  if (!canStartQueue.value) {
+    return;
+  }
   await startQueue(); // 🔥 반드시 먼저 진입
   queueTimer = setInterval(checkStatus, 1000);
 });

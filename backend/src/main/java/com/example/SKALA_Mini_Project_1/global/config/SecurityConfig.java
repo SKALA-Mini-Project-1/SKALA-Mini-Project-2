@@ -65,6 +65,8 @@ public class SecurityConfig {
                     "/api/users/login",
                     "/api/users/logout",
                     "/api/users/email/**",
+                    "/api/concerts",
+                    "/api/concerts/*",
                     // 대기열 큐 관련 API 허용
                     "/api/seats/seats"
                 ).permitAll()
