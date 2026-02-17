@@ -1,11 +1,12 @@
 package com.example.SKALA_Mini_Project_1.modules.payments.controller;
 
 import java.net.URI;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.RequestBody;
 import jakarta.validation.Valid;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmResponse;
@@ -21,6 +23,7 @@ import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentC
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentGetResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentSubmitResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.RefundRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.TossWebhookRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.service.PaymentService;
 
@@ -35,20 +38,27 @@ public class PaymentController {
 
     @PostMapping("/create")
     public ResponseEntity<PaymentCreateResponse> create(@Valid @RequestBody PaymentCreateRequest req) {
-        return ResponseEntity.ok(paymentService.createPayment(req));
+        Long userId = (Long) SecurityContextHolder.getContext()
+                .getAuthentication()
+                .getPrincipal();
+        return ResponseEntity.ok(paymentService.createPayment(req.getBookingId(), userId));
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<PaymentGetResponse> get(@PathVariable UUID id) {
-        return ResponseEntity.ok(paymentService.getPayment(id));
+        Long userId = (Long) SecurityContextHolder.getContext()
+                .getAuthentication()
+                .getPrincipal();
+        return ResponseEntity.ok(paymentService.getPayment(id, userId));
     }
 
-    // 인증 생기면 userId 헤더 대신 @AuthenticationPrincipal 사용
     @PostMapping("/{paymentId}/submit")
     public PaymentSubmitResponse submit(
-            @PathVariable UUID paymentId,
-            @RequestHeader("X-USER-ID") Long userId
+            @PathVariable UUID paymentId
     ) {
+        Long userId = (Long) SecurityContextHolder.getContext()
+                .getAuthentication()
+                .getPrincipal();
         return paymentService.submit(paymentId, userId);
     }
 
@@ -99,6 +109,31 @@ public class PaymentController {
             @RequestBody TossWebhookRequest request
     ) {
         paymentService.handleWebhook(request);
+    }
+
+    @GetMapping("/refunds/required")
+    public ResponseEntity<List<Map<String, Object>>> refundRequired() {
+        Long userId = (Long) SecurityContextHolder.getContext()
+                .getAuthentication()
+                .getPrincipal();
+        return ResponseEntity.ok(paymentService.getRefundRequiredPayments(userId));
+    }
+
+    @PostMapping("/refunds/{paymentId}/request")
+    public ResponseEntity<Map<String, Object>> requestRefund(
+            @PathVariable UUID paymentId,
+            @RequestBody(required = false) RefundRequest request
+    ) {
+        Long userId = (Long) SecurityContextHolder.getContext()
+                .getAuthentication()
+                .getPrincipal();
+        String reasonCode = request == null ? null : request.getReasonCode();
+        return ResponseEntity.ok(paymentService.requestRefund(paymentId, userId, reasonCode));
+    }
+
+    @GetMapping("/ops/summary")
+    public ResponseEntity<Map<String, Object>> opsSummary() {
+        return ResponseEntity.ok(paymentService.getOpsSummary());
     }
 
 
