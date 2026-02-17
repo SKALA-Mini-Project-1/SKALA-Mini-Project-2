@@ -24,4 +24,8 @@ public class RedisKeyGenerator {
     public static String seatAccessByScheduleKey(Long userId, Long scheduleId) {
         return "seat:access:user:" + userId + ":schedule:" + scheduleId;
     }
+
+    public static String queueHeartbeatKey(Long concertId, Long scheduleId, String userId) {
+        return "queue:heartbeat:concert:" + concertId + ":schedule:" + scheduleId + ":user:" + userId;
+    }
 }
