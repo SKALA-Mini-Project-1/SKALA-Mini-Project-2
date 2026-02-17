@@ -20,6 +20,10 @@ type SectionMeta = {
   rows: number;
   cols: number;
 };
+const props = defineProps<{
+  concertId: string | null;
+  scheduleId: string | null;
+}>();
 
 const timeLeft = ref(420);
 const selectedSection = ref<SectionMeta | null>(null);
@@ -221,7 +225,7 @@ const toggleSeat = (row: number, col: number) => {
   selectedSeats.value = [
     ...selectedSeats.value,
     {
-      id: seatId,
+      id: props.scheduleId ? `${props.scheduleId}-${seatId}` : seatId,
       section: selectedSection.value.id,
       row,
       col,
@@ -263,6 +267,9 @@ const totalVenueSeats = computed(() => sections.reduce((sum, section) => sum + s
         <span class="font-mono text-xl font-bold text-[#f59e0b]">{{ formatTime(timeLeft) }}</span>
       </div>
       <div class="hidden text-xs text-slate-300 md:block">제한시간 내 결제를 완료해주세요.</div>
+      <div class="hidden text-xs text-gray-400 md:block">
+        콘서트 {{ props.concertId || '-' }} · 회차 {{ props.scheduleId || '-' }}
+      </div>
     </div>
     <div class="h-1 w-full bg-slate-800"><div class="h-full bg-gradient-to-r from-[#f59e0b] to-[#ef4444] transition-[width] duration-1000" :style="{ width: progressWidth }"></div></div>
 

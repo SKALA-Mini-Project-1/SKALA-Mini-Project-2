@@ -116,6 +116,7 @@ export interface BookingData {
   bookingId?: string | null
   bookingNumber: string | null
   concertId: string | null
+  scheduleId: string | null
   concertTitle: string | null
   concertVenue: string | null
   date: string | null

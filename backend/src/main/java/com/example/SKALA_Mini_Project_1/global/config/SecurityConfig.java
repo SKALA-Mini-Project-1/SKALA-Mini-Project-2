@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.Customizer;
@@ -41,6 +42,8 @@ public class SecurityConfig {
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)  // JWT 사용으로 세션 미사용
             )
             .authorizeHttpRequests(auth -> auth
+                // CORS preflight 요청은 인증 없이 허용
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 // 결제 관련 API는 인증 없이 접근 허용
                 .requestMatchers("/api/payments/confirm").permitAll()
                 .requestMatchers("/api/payments/toss/webhook").permitAll()
@@ -62,6 +65,8 @@ public class SecurityConfig {
                     "/api/users/login",
                     "/api/users/logout",
                     "/api/users/email/**",
+                    "/api/concerts",
+                    "/api/concerts/*",
                     // 대기열 큐 관련 API 허용
                     "/api/seats/seats"
                 ).permitAll()

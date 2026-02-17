@@ -1,11 +1,18 @@
 <script setup lang="ts">
 import { AlertCircle, ChevronLeft, ChevronRight, Clock, Info } from 'lucide-vue-next';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
+import type { ConcertDateSlot, ConcertSession } from '../types';
 
 const props = defineProps<{
   posterImage?: string;
   title?: string;
   subtitle?: string;
+  period?: string;
+  venue?: string;
+  runtime?: string;
+  ageRating?: string;
+  availableDates?: ConcertDateSlot[];
+  sessions?: ConcertSession[];
 }>();
 
 const emit = defineEmits<{
@@ -15,64 +22,62 @@ const emit = defineEmits<{
 const selectedDate = ref<string | null>(null);
 const selectedSession = ref<string | null>(null);
 
-const dates = Array.from({ length: 30 }, (_, i) => {
-  const day = i + 1;
-  const isWeekend = [7, 8, 14, 15, 21, 22, 28, 29].includes(day);
-  const isAvailable = [12, 13, 14, 15].includes(day);
-  const isSoldOut = [12].includes(day);
-  return { day, isWeekend, isAvailable, isSoldOut };
+const dates = props.availableDates ?? [];
+const sessions = props.sessions ?? [];
+
+const dateSlotMap = computed(() => {
+  const map = new Map<string, ConcertDateSlot>();
+  dates.forEach((d) => map.set(d.isoDate, d));
+  return map;
 });
 
-const sessions = [
-  { id: '1', time: '18:00', status: '여유', color: 'bg-green-100 text-green-700' },
-  { id: '2', time: '20:00', status: '매진임박', color: 'bg-red-100 text-red-600 animate-pulse' }
-];
-
-const startBooking = async () => {
-  if (!selectedDate.value || !selectedSession.value) return;
-
-  try {
-    const token = localStorage.getItem("accessToken"); // 로그인 후 저장했다고 가정
-
-    const response = await fetch(
-      "http://localhost:10010/api/ticketing/start?concertId=1",
-      {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
-      }
-    );
-
-    const data = await response.json();
-
-    if (data.enter) {
-      // 바로 좌석 서버 이동
-      window.location.href =
-        `http://localhost:8081/api/seats/seats?token=${data.entryToken}`;
-    } else {
-      // 대기열 화면으로 이동
-      router.push({
-        name: "QueuePage",
-        query: {
-          concertId: 1,
-          rank: data.rank
-        }
-      });
-    }
-
-  } catch (error) {
-    console.error("예매 시작 실패:", error);
+const calendarBaseDate = computed(() => {
+  if (dates.length === 0) {
+    return new Date();
   }
-};
+  const parsed = new Date(`${dates[0].isoDate}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+});
 
+const calendarYear = computed(() => calendarBaseDate.value.getFullYear());
+const calendarMonth = computed(() => calendarBaseDate.value.getMonth());
 
+const calendarMonthLabel = computed(
+  () => `${calendarYear.value}.${String(calendarMonth.value + 1).padStart(2, '0')}`
+);
 
-const handleDateClick = (day: number, isAvailable: boolean) => {
+const firstWeekday = computed(() => new Date(calendarYear.value, calendarMonth.value, 1).getDay());
+const daysInMonth = computed(() => new Date(calendarYear.value, calendarMonth.value + 1, 0).getDate());
+
+const calendarCells = computed(() => {
+  const cells: Array<
+    | { type: 'empty'; key: string }
+    | { type: 'day'; key: string; day: number; isoDate: string; slot: ConcertDateSlot | null }
+  > = [];
+
+  for (let i = 0; i < firstWeekday.value; i += 1) {
+    cells.push({ type: 'empty', key: `empty-${i}` });
+  }
+
+  for (let day = 1; day <= daysInMonth.value; day += 1) {
+    const isoDate = `${calendarYear.value}-${String(calendarMonth.value + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    cells.push({
+      type: 'day',
+      key: isoDate,
+      day,
+      isoDate,
+      slot: dateSlotMap.value.get(isoDate) ?? null
+    });
+  }
+
+  return cells;
+});
+
+const handleDateClick = (isoDate: string, isAvailable: boolean) => {
   if (!isAvailable) {
     return;
   }
-  selectedDate.value = `2025-06-${day}`;
+  selectedDate.value = isoDate;
   selectedSession.value = null;
 };
 </script>
@@ -90,8 +95,8 @@ const handleDateClick = (day: number, isAvailable: boolean) => {
           />
           <div v-else class="absolute inset-0 flex items-center justify-center text-4xl font-bold text-white text-opacity-20 md:text-6xl">POSTER</div>
           <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 md:p-6">
-            <h2 class="mb-1 text-xl font-bold text-white md:text-2xl">{{ props.title || 'IU 2025 HEREH' }}</h2>
-            <p class="font-medium text-orange-400">{{ props.subtitle || 'WORLD TOUR ENCORE' }}</p>
+            <h2 class="mb-1 text-xl font-bold text-white md:text-2xl">{{ props.title || '공연' }}</h2>
+            <p class="font-medium text-orange-400">{{ props.subtitle || '-' }}</p>
           </div>
         </div>
 
@@ -101,19 +106,19 @@ const handleDateClick = (day: number, isAvailable: boolean) => {
             <tbody class="divide-y divide-[#f0f0f0]">
               <tr>
                 <th class="w-24 py-2 text-left font-normal text-[#666]">공연기간</th>
-                <td class="py-2 text-[#333]">2025.06.12 ~ 2025.06.15</td>
+                <td class="py-2 text-[#333]">{{ props.period || '-' }}</td>
               </tr>
               <tr>
                 <th class="py-2 text-left font-normal text-[#666]">공연장소</th>
-                <td class="py-2 text-[#333]">서울 상암 월드컵경기장</td>
+                <td class="py-2 text-[#333]">{{ props.venue || '-' }}</td>
               </tr>
               <tr>
                 <th class="py-2 text-left font-normal text-[#666]">관람시간</th>
-                <td class="py-2 text-[#333]">150분</td>
+                <td class="py-2 text-[#333]">{{ props.runtime || '-' }}</td>
               </tr>
               <tr>
                 <th class="py-2 text-left font-normal text-[#666]">관람등급</th>
-                <td class="py-2 text-[#333]">8세 이상 관람가</td>
+                <td class="py-2 text-[#333]">{{ props.ageRating || '-' }}</td>
               </tr>
             </tbody>
           </table>
@@ -130,36 +135,41 @@ const handleDateClick = (day: number, isAvailable: boolean) => {
             </div>
           </div>
 
-          <div class="flex flex-col gap-6 p-4 md:gap-8 md:p-6 md:flex-row">
+          <div class="flex flex-col gap-6 p-4 md:flex-row md:gap-8 md:p-6">
             <div class="flex-1">
               <div class="mb-4 flex items-center justify-between">
                 <button class="rounded p-1 hover:bg-gray-100"><ChevronLeft :size="20" /></button>
-                <span class="text-lg font-bold">2025.06</span>
+                <span class="text-lg font-bold">{{ calendarMonthLabel }}</span>
                 <button class="rounded p-1 hover:bg-gray-100"><ChevronRight :size="20" /></button>
               </div>
               <div class="mb-2 grid grid-cols-7 gap-1 text-center text-xs md:text-sm">
                 <div class="text-red-500">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div class="text-blue-500">토</div>
               </div>
               <div class="grid grid-cols-7 gap-1 text-center">
-                <div class="p-2"></div><div class="p-2"></div><div class="p-2"></div>
-                <button
-                  v-for="d in dates"
-                  :key="d.day"
-                  :disabled="!d.isAvailable && !d.isSoldOut"
-                  class="relative mx-auto flex h-9 w-9 items-center justify-center rounded-full p-2 text-sm transition-all md:h-10 md:w-10 md:text-base"
-                  :class="[
-                    selectedDate === `2025-06-${d.day}`
-                      ? 'bg-[#FF6B00] font-bold text-white shadow-md'
-                      : d.isAvailable
-                        ? 'cursor-pointer border border-transparent font-semibold text-[#333] hover:border-orange-200 hover:bg-orange-50'
-                        : 'cursor-default text-gray-300',
-                    d.isWeekend && !selectedDate?.includes(String(d.day)) ? 'text-red-400' : ''
-                  ]"
-                  @click="handleDateClick(d.day, d.isAvailable)"
-                >
-                  <span :class="d.isSoldOut ? 'line-through' : ''">{{ d.day }}</span>
-                  <span v-if="d.isSoldOut" class="absolute -bottom-1 text-[10px] font-bold text-red-500">매진</span>
-                </button>
+                <template v-for="(cell, idx) in calendarCells" :key="cell.key">
+                  <div
+                    v-if="cell.type === 'empty'"
+                    class="mx-auto h-9 w-9 md:h-10 md:w-10"
+                  ></div>
+                  <button
+                    v-else
+                    :disabled="!cell.slot?.isAvailable && !cell.slot?.isSoldOut"
+                    class="relative mx-auto flex h-9 w-9 items-center justify-center rounded-full p-2 text-sm transition-all md:h-10 md:w-10 md:text-base"
+                    :class="[
+                      selectedDate === cell.isoDate
+                        ? 'bg-[#FF6B00] font-bold text-white shadow-md'
+                        : cell.slot?.isAvailable
+                          ? 'cursor-pointer border border-transparent font-semibold text-[#333] hover:border-orange-200 hover:bg-orange-50'
+                          : 'cursor-default text-gray-300',
+                      idx % 7 === 0 ? 'text-red-400' : '',
+                      idx % 7 === 6 ? 'text-blue-400' : ''
+                    ]"
+                    @click="handleDateClick(cell.isoDate, Boolean(cell.slot?.isAvailable))"
+                  >
+                    <span :class="cell.slot?.isSoldOut ? 'line-through' : ''">{{ cell.day }}</span>
+                    <span v-if="cell.slot?.isSoldOut" class="absolute -bottom-1 text-[10px] font-bold text-red-500">매진</span>
+                  </button>
+                </template>
               </div>
             </div>
 
@@ -175,7 +185,18 @@ const handleDateClick = (day: number, isAvailable: boolean) => {
                     @click="selectedSession = session.id"
                   >
                     <span class="font-bold text-[#333]">{{ session.id }}회차 {{ session.time }}</span>
-                    <span class="rounded-full px-2 py-1 text-xs font-medium" :class="session.color">{{ session.status }}</span>
+                    <span
+                      class="rounded-full px-2 py-1 text-xs font-medium"
+                      :class="
+                        session.status === '여유'
+                          ? 'bg-green-100 text-green-700'
+                          : session.status === '매진임박'
+                            ? 'bg-red-100 text-red-600'
+                            : 'bg-amber-100 text-amber-700'
+                      "
+                    >
+                      {{ session.status }}
+                    </span>
                   </button>
                 </div>
                 <div v-else class="rounded border border-dashed border-gray-200 bg-gray-50 py-8 text-center text-gray-400">날짜를 먼저 선택해주세요</div>

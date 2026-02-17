@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Menu, Search, User } from 'lucide-vue-next';
+import fairlineLogo from '../assets/fairline_ticket_logo.png';
 
 const props = defineProps<{
   currentPath: string;
@@ -35,20 +36,23 @@ const isActive = (path: string) => {
         <button v-if="!isAuthenticated" class="hover:underline" @click="emit('navigate', '/signup')">회원가입</button>
         <button v-if="isAuthenticated" class="hover:underline" @click="emit('logout')">로그아웃</button>
         <span class="text-[#c8d5e2]">|</span>
-        <button class="hover:underline">고객센터</button>
+        <button class="hover:underline" @click="emit('navigate', '/support')">고객센터</button>
         <span class="text-[#c8d5e2]">|</span>
         <button class="hover:underline" @click="emit('navigate', '/mypage')">마이페이지</button>
       </div>
     </div>
 
-    <div class="mx-auto flex max-w-[1280px] items-center justify-between px-4 py-3 md:h-20 md:py-0">
+    <div class="mx-auto flex max-w-[1280px] items-center justify-between px-4 py-3 md:h-28 md:py-0">
       <div class="flex items-center space-x-3 md:space-x-8">
         <button
-          class="flex items-center text-xl font-black tracking-tight text-[#ff7a00] md:text-2xl"
+          class="flex items-center"
           @click="emit('navigate', '/main')"
         >
-          <span class="mr-2">FairLine</span>
-          <span class="rounded bg-[#102a49] px-2 py-1 text-sm text-white md:text-base">Ticket</span>
+          <img
+            :src="fairlineLogo"
+            alt="Fairline Ticket"
+            class="h-14 w-auto object-contain md:h-20"
+          />
         </button>
 
         <div class="relative hidden md:block">
@@ -93,8 +97,12 @@ const isActive = (path: string) => {
           >
             {{ item.label }}
           </button>
-          <span class="flex items-center px-4 text-xs font-semibold text-[#6a819a]">예매가이드</span>
-          <span class="flex items-center px-4 text-xs font-semibold text-[#6a819a]">고객센터</span>
+          <button class="flex items-center px-4 text-xs font-semibold text-[#6a819a] hover:text-[#ff7a00]" @click="emit('navigate', '/guide')">
+            예매가이드
+          </button>
+          <button class="flex items-center px-4 text-xs font-semibold text-[#6a819a] hover:text-[#ff7a00]" @click="emit('navigate', '/support')">
+            고객센터
+          </button>
         </nav>
       </div>
     </div>

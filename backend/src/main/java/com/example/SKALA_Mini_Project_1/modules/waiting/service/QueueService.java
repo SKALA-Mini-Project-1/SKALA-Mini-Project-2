@@ -31,13 +31,13 @@ public class QueueService {
     /**
      * 🎯 예매하기 버튼 클릭 시 호출되는 메인 메서드
      */
-    public TicketingStartResponse startTicketing(Long concertId, Long userId) {
+    public TicketingStartResponse startTicketing(Long concertId, Long scheduleId, Long userId) {
 
         // 1️ 로그인 사용자 존재 확인
         User user = userRepository.findById(userId)
             .orElseThrow(() -> new IllegalArgumentException("사용자 없음"));
 
-        long rank = enterQueue(concertId, String.valueOf(userId), 0);
+        long rank = enterQueue(concertId, scheduleId, String.valueOf(userId), 0);
 
 
         // // 2️⃣ (현재는 팬점수 미적용)
@@ -69,9 +69,11 @@ public class QueueService {
     /**
      * 🔥 Redis ZSET 대기열 진입
      */
-    private long enterQueue(Long concertId, String userId, long fandomWeightMillis) {
+    private long enterQueue(Long concertId, Long scheduleId, String userId, long fandomWeightMillis) {
 
-        String key = getQueueKey(concertId);
+        String key = getQueueKey(concertId, scheduleId);
+        String enterKey = getEnterKey(concertId, scheduleId);
+        redisTemplate.opsForValue().setIfAbsent(enterKey, "0");
 
         long now = System.currentTimeMillis();
         long weight = Math.min(fandomWeightMillis, MAX_WEIGHT_MILLIS);
@@ -84,7 +86,7 @@ public class QueueService {
         Long rank = redisTemplate.opsForZSet().rank(key, userId);
 
         System.out.println("ENTER QUEUE CALLED");
-        System.out.println("QUEUE KEY: " + getQueueKey(concertId));
+        System.out.println("QUEUE KEY: " + getQueueKey(concertId, scheduleId));
         System.out.println("USER ID: " + userId);
 
         return rank != null ? rank : -1;
@@ -121,10 +123,10 @@ public class QueueService {
 
 
     // ❗️ 결제 서버와 연결 전까지는 우선 스케쥴러를 사용하는 방식으로 좌석 서버 입장 허용(8081)
-    private boolean canEnter(Long concertId, String userId) {
+    private boolean canEnter(Long concertId, Long scheduleId, String userId) {
 
-        String queueKey = getQueueKey(concertId);
-        String enterKey = "queue:concert:" + concertId + ":enter";
+        String queueKey = getQueueKey(concertId, scheduleId);
+        String enterKey = getEnterKey(concertId, scheduleId);
 
         Long rank = redisTemplate.opsForZSet().rank(queueKey, userId);
         if (rank == null) return false;
@@ -175,10 +177,10 @@ public class QueueService {
     }
     */
 
-    public QueueStatusResponse getStatus(Long concertId, Long userId) {
+    public QueueStatusResponse getStatus(Long concertId, Long scheduleId, Long userId) {
 
-        String queueKey = getQueueKey(concertId);
-        String enterKey = "queue:concert:" + concertId + ":enter";
+        String queueKey = getQueueKey(concertId, scheduleId);
+        String enterKey = getEnterKey(concertId, scheduleId);
 
         Long rank = redisTemplate.opsForZSet()
                 .rank(queueKey, String.valueOf(userId));
@@ -210,7 +212,11 @@ public class QueueService {
 
 
 
-    private String getQueueKey(Long concertId) {
-        return "queue:concert:" + concertId;
+    private String getQueueKey(Long concertId, Long scheduleId) {
+        return "queue:concert:" + concertId + ":schedule:" + scheduleId;
+    }
+
+    private String getEnterKey(Long concertId, Long scheduleId) {
+        return "queue:concert:" + concertId + ":schedule:" + scheduleId + ":enter";
     }
 }

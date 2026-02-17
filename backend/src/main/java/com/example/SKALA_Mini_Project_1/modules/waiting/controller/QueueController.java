@@ -7,10 +7,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-
-import java.util.Map;
-
 
 import com.example.SKALA_Mini_Project_1.modules.waiting.service.QueueService;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.QueueStatusResponse;
@@ -28,12 +24,13 @@ public class QueueController {
     @PostMapping("/start")
         public ResponseEntity<?> startTicketing(
                 @RequestParam Long concertId,
+                @RequestParam Long scheduleId,
                 Authentication authentication
         ) {
 
         Long userId = (Long) authentication.getPrincipal();
 
-        TicketingStartResponse response =queueService.startTicketing(concertId, userId);
+        TicketingStartResponse response =queueService.startTicketing(concertId, scheduleId, userId);
 
         return ResponseEntity.ok(response);
         }
@@ -41,10 +38,11 @@ public class QueueController {
      @GetMapping("/status")
         public QueueStatusResponse getStatus(
                 @RequestParam Long concertId,
+                @RequestParam Long scheduleId,
                 Authentication authentication
         ) {
         Long userId = (Long) authentication.getPrincipal();
-        return queueService.getStatus(concertId, userId);
+        return queueService.getStatus(concertId, scheduleId, userId);
         }
 
 //     @GetMapping("/rank")

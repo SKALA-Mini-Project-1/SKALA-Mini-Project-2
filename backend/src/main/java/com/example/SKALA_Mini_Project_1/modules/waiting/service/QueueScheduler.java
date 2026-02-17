@@ -4,6 +4,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import java.time.Duration;
+import java.util.Set;
 
 
 @Component
@@ -21,14 +22,16 @@ public void openEntrance() {
         return; // 다른 서버가 실행 중이면 그냥 종료
     }
 
-    String enterKey = "queue:concert:1:enter";
+    Set<String> enterKeys = redisTemplate.keys("queue:concert:*:schedule:*:enter");
+    if (enterKeys == null || enterKeys.isEmpty()) {
+        return;
+    }
 
-    String current = redisTemplate.opsForValue().get(enterKey);
-
-    long allowed = current == null ? 0 : Long.parseLong(current);
-
-    allowed += 100;
-
-    redisTemplate.opsForValue().set(enterKey, String.valueOf(allowed));
+    for (String enterKey : enterKeys) {
+        String current = redisTemplate.opsForValue().get(enterKey);
+        long allowed = current == null ? 0 : Long.parseLong(current);
+        allowed += 100;
+        redisTemplate.opsForValue().set(enterKey, String.valueOf(allowed));
+    }
 }
 }
