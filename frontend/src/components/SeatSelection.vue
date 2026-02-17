@@ -180,12 +180,14 @@ onMounted(() => {
   }, 1000);
 
   void loadSeatMap();
+  window.addEventListener('pagehide', leaveSeatOnExit);
 });
 
 onBeforeUnmount(() => {
   if (timer) {
     clearInterval(timer);
   }
+  window.removeEventListener('pagehide', leaveSeatOnExit);
   void leaveSeatOnExit();
 });
 
