@@ -18,13 +18,15 @@ import LoginPage from './components/LoginPage.vue'
 import SignupPage from './components/SignupPage.vue'
 import BookingGuidePage from './components/BookingGuidePage.vue'
 import SupportPage from './components/SupportPage.vue'
-import { concerts, getConcertById } from './data/concerts'
 import type { BookingData, Seat } from './types'
 import { apiRequest } from './services/api'
 import { clearAuth, getToken, isLoggedIn } from './services/auth'
+import { fetchConcerts } from './services/concerts'
+import type { ConcertItem } from './types'
 
 const bookingData = reactive<BookingData>({
   concertId: null,
+  scheduleId: null,
   concertTitle: null,
   concertVenue: null,
   date: null,
@@ -33,6 +35,7 @@ const bookingData = reactive<BookingData>({
 })
 
 const authState = ref(isLoggedIn())
+const concerts = ref<ConcertItem[]>([])
 const currentPath = ref(window.location.pathname || '/main')
 const currentSearch = ref(window.location.search || '')
 const pendingPath = ref<string | null>(null)
@@ -89,7 +92,15 @@ const selectedConcertId = computed(() => {
   return params.get('concert')
 })
 
-const selectedConcert = computed(() => getConcertById(selectedConcertId.value))
+const selectedConcert = computed(() => {
+  if (concerts.value.length === 0) {
+    return null
+  }
+  if (!selectedConcertId.value) {
+    return concerts.value[0]
+  }
+  return concerts.value.find((concert) => concert.id === selectedConcertId.value) ?? concerts.value[0]
+})
 
 const setPath = (path: string, replace = false) => {
   const url = new URL(path, window.location.origin)
@@ -139,6 +150,10 @@ const handlePopState = () => {
 }
 
 const handleBookingStart = (date: string, session: string) => {
+  if (!selectedConcert.value) {
+    return
+  }
+
   const concertId = selectedConcert.value.id
   const concertTitle = `${selectedConcert.value.title} ${selectedConcert.value.subtitle}`
   const concertVenue = selectedConcert.value.venue
@@ -150,6 +165,7 @@ const handleBookingStart = (date: string, session: string) => {
   }
 
   bookingData.concertId = selectedConcert.value.id
+  bookingData.scheduleId = session
   bookingData.concertTitle = concertTitle
   bookingData.concertVenue = concertVenue
   bookingData.date = date
@@ -196,6 +212,7 @@ const handleLoggedIn = () => {
 
   if (pendingBooking.value) {
     bookingData.concertId = pendingBooking.value.concertId
+    bookingData.scheduleId = pendingBooking.value.session
     bookingData.concertTitle = pendingBooking.value.concertTitle
     bookingData.concertVenue = pendingBooking.value.concertVenue
     bookingData.date = pendingBooking.value.date
@@ -221,6 +238,14 @@ const handleLoggedOut = () => {
 }
 
 onMounted(() => {
+  void fetchConcerts()
+    .then((items) => {
+      concerts.value = items
+    })
+    .catch(() => {
+      concerts.value = []
+    })
+
   const path = window.location.pathname || '/main'
   if (!validPaths.has(path) && path !== '/') {
     setPath('/main', true)
@@ -278,10 +303,16 @@ onUnmounted(() => {
         @logged-out="handleLoggedOut"
       />
       <ConcertDetail
-        v-else-if="normalizedPath === '/concert/detail'"
+        v-else-if="normalizedPath === '/concert/detail' && selectedConcert"
         :poster-image="selectedConcert.heroImage"
         :title="selectedConcert.title"
         :subtitle="selectedConcert.subtitle"
+        :period="selectedConcert.period"
+        :venue="selectedConcert.venue"
+        :runtime="selectedConcert.runtime"
+        :age-rating="selectedConcert.ageRating"
+        :available-dates="selectedConcert.availableDates"
+        :sessions="selectedConcert.sessions"
         @booking-start="handleBookingStart"
       />
       <ConcertOpenPage
@@ -290,10 +321,14 @@ onUnmounted(() => {
       />
       <QueueScreen
         v-else-if="normalizedPath === '/concert/queue'"
+        :concert-id="bookingData.concertId"
+        :schedule-id="bookingData.scheduleId"
         @queue-complete="handleQueueComplete"
       />
       <SeatSelection
         v-else-if="normalizedPath === '/concert/seat'"
+        :concert-id="bookingData.concertId"
+        :schedule-id="bookingData.scheduleId"
         @complete="handleSeatComplete"
       />
       <PaymentScreen
