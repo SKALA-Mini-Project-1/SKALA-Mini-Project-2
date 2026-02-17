@@ -24,37 +24,37 @@ public class QueueController {
 
     @PostMapping("/start")
         public ResponseEntity<?> startTicketing(
-                @RequestParam String concertCode,
+                @RequestParam String concertId,
                 @RequestParam Long scheduleId,
                 Authentication authentication
         ) {
 
         Long userId = (Long) authentication.getPrincipal();
 
-        TicketingStartResponse response =queueService.startTicketing(concertCode, scheduleId, userId);
+        TicketingStartResponse response =queueService.startTicketing(concertId, scheduleId, userId);
 
         return ResponseEntity.ok(response);
         }
 
      @GetMapping("/status")
         public QueueStatusResponse getStatus(
-                @RequestParam String concertCode,
+                @RequestParam String concertId,
                 @RequestParam Long scheduleId,
                 Authentication authentication
         ) {
         Long userId = (Long) authentication.getPrincipal();
-        return queueService.getStatus(concertCode, scheduleId, userId);
+        return queueService.getStatus(concertId, scheduleId, userId);
         }
 
     @PostMapping("/dev/seed-ahead")
     public ResponseEntity<?> seedAhead(
-            @RequestParam String concertCode,
+            @RequestParam String concertId,
             @RequestParam Long scheduleId,
             @RequestParam(defaultValue = "150") int count,
             Authentication authentication
     ) {
         Long userId = (Long) authentication.getPrincipal();
-        Long rank = queueService.seedQueueAheadForTest(concertCode, scheduleId, userId, count);
+        Long rank = queueService.seedQueueAheadForTest(concertId, scheduleId, userId, count);
         return ResponseEntity.ok(Map.of(
                 "status", "success",
                 "seedCount", count,
