@@ -38,7 +38,15 @@ public class User {
 
     private String phone;
 
+    @Column(name = "fan_score")
+    private Integer fanScore;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
+
+    public void updateProfile(String name, String phone) {
+        this.name = name;
+        this.phone = phone;
+    }
 }

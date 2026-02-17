@@ -10,6 +10,7 @@ import com.example.SKALA_Mini_Project_1.modules.users.dto.LoginRequest;
 import com.example.SKALA_Mini_Project_1.modules.users.dto.LoginResponse;
 import com.example.SKALA_Mini_Project_1.modules.users.dto.SignUpRequest;
 import com.example.SKALA_Mini_Project_1.modules.users.dto.SignUpResponse;
+import com.example.SKALA_Mini_Project_1.modules.users.dto.UpdateMyInfoRequest;
 import com.example.SKALA_Mini_Project_1.modules.users.service.EmailVerificationService;
 
 import lombok.RequiredArgsConstructor;
@@ -118,6 +119,18 @@ public class UserService {
                 .createdAt(savedUser.getCreatedAt())
                 .message("회원가입 성공")
                 .build();
+    }
+
+    public User getUserById(Long userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다"));
+    }
+
+    @Transactional
+    public User updateMyInfo(Long userId, UpdateMyInfoRequest request) {
+        User user = getUserById(userId);
+        user.updateProfile(request.getName(), request.getPhone());
+        return user;
     }
 
     
