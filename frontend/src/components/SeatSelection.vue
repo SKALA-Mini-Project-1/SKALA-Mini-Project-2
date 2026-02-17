@@ -2,7 +2,7 @@
 import { AlertCircle, X } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ApiError } from '../services/api';
-import { getSeatMap, getSeatMapBySchedule, holdSeat, type SeatMapItem } from '../services/seat';
+import { getSeatMap, getSeatMapBySchedule, holdSeat, leaveSeatScreen, type SeatMapItem } from '../services/seat';
 import type { Seat } from '../types';
 
 const emit = defineEmits<{
@@ -37,11 +37,30 @@ const showExpiryWarningModal = ref(false);
 const hasShownExpiryWarning = ref(false);
 const holdingSeatMap = ref<Record<string, boolean>>({});
 const seatStatusMap = ref<Record<string, string>>({});
+const shouldSkipLeaveOnUnmount = ref(false);
+const hasSentLeave = ref(false);
 let timer: ReturnType<typeof setInterval> | null = null;
 const concertId = computed(() => Number(props.concertId ?? 1));
 const scheduleId = computed(() => (props.scheduleId ? Number(props.scheduleId) : null));
 
+const leaveSeatOnExit = async () => {
+  if (shouldSkipLeaveOnUnmount.value || hasSentLeave.value) {
+    return;
+  }
+  if (!concertId.value || !scheduleId.value) {
+    return;
+  }
+
+  hasSentLeave.value = true;
+  try {
+    await leaveSeatScreen(concertId.value, scheduleId.value);
+  } catch (error) {
+    console.error('좌석 이탈 처리 실패', error);
+  }
+};
+
 const redirectToMain = () => {
+  void leaveSeatOnExit();
   window.location.href = 'http://localhost:5173/main';
 };
 
@@ -139,6 +158,8 @@ const toneClassMap: Record<SectionMeta['tone'], string> = {
 };
 
 onMounted(() => {
+  shouldSkipLeaveOnUnmount.value = false;
+  hasSentLeave.value = false;
   timer = setInterval(() => {
     if (timeLeft.value <= 0) {
       if (timer) {
@@ -165,6 +186,7 @@ onBeforeUnmount(() => {
   if (timer) {
     clearInterval(timer);
   }
+  void leaveSeatOnExit();
 });
 
 const formatTime = (seconds: number) => {
@@ -388,6 +410,11 @@ const gradeLegend = computed(() => {
 });
 
 const totalVenueSeats = computed(() => sections.reduce((sum, section) => sum + section.totalSeats, 0));
+
+const completeSeatSelection = () => {
+  shouldSkipLeaveOnUnmount.value = true;
+  emit('complete', selectedSeats.value);
+};
 </script>
 
 <template>
@@ -514,7 +541,7 @@ const totalVenueSeats = computed(() => sections.reduce((sum, section) => sum + s
             class="w-full rounded py-4 text-lg font-bold transition-all"
             :class="selectedSeats.length > 0 ? 'bg-[#f97316] text-white shadow-md hover:bg-[#ea580c]' : 'cursor-not-allowed bg-slate-200 text-slate-500'"
             :disabled="selectedSeats.length === 0"
-            @click="emit('complete', selectedSeats)"
+            @click="completeSeatSelection"
           >
             좌석선택 완료
           </button>

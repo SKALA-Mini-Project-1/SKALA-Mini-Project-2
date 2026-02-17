@@ -215,6 +215,51 @@ public class SeatController {
         }
     }
 
+    @PostMapping("/leave")
+    public ResponseEntity<?> leaveSeatScreen(
+            @RequestParam Long concertId,
+            @RequestParam Long scheduleId
+    ) {
+        Long userId = (Long) SecurityContextHolder.getContext()
+                .getAuthentication()
+                .getPrincipal();
+
+        Long resolvedConcertId = seatRepository.findConcertIdByScheduleId(scheduleId)
+                .orElseThrow(() -> new EntityNotFoundException("스케줄이 존재하지 않습니다. ID: " + scheduleId));
+        if (!resolvedConcertId.equals(concertId)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "message", "콘서트/회차 정보가 일치하지 않습니다.",
+                    "status", "bad_request"
+            ));
+        }
+
+        int releasedSeatCount = seatReservationService.releaseAllSeatHolds(scheduleId, userId);
+
+        String accessKey = RedisKeyGenerator.seatAccessKey(userId, concertId, scheduleId);
+        String accessByScheduleKey = RedisKeyGenerator.seatAccessByScheduleKey(userId, scheduleId);
+        boolean hadAccess = Boolean.TRUE.equals(redisTemplate.hasKey(accessKey));
+
+        redisTemplate.delete(accessKey);
+        redisTemplate.delete(accessByScheduleKey);
+
+        Long active = null;
+        if (hadAccess) {
+            String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
+            active = redisTemplate.opsForValue().decrement(activeKey);
+            if (active == null || active < 0) {
+                redisTemplate.opsForValue().set(activeKey, "0");
+                active = 0L;
+            }
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "status", "success",
+                "releasedSeatCount", releasedSeatCount,
+                "activeDecremented", hadAccess,
+                "activeCount", active == null ? -1L : active
+        ));
+    }
+
     private Long resolveSeatId(SeatSelectRequest requestDto) {
         Seat seat = seatRepository
                 .findByScheduleIdAndSectionAndRowNumberAndSeatNumber(
