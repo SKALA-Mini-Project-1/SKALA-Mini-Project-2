@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -155,8 +156,39 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
             """,
             nativeQuery = true
     )
-    List<SeatBookingView> findSeatBookingViews(
-            @Param("concertId") Long concertId,
-            @Param("seatIds") List<Long> seatIds
-    );
+    List<SeatBookingView> findSeatBookingViews(Long concertId, List<Long> seatIds);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(
+            value = """
+                    UPDATE seats s
+                    SET status = 'RESERVED',
+                        version = version + 1
+                    WHERE s.id IN (
+                        SELECT bi.seat_id
+                        FROM booking_items bi
+                        WHERE bi.booking_id = :bookingId
+                    )
+                      AND s.status <> 'RESERVED'
+                    """,
+            nativeQuery = true
+    )
+    int reserveSeatsByBookingId(@Param("bookingId") UUID bookingId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(
+            value = """
+                    UPDATE seats s
+                    SET status = 'AVAILABLE',
+                        version = version + 1
+                    WHERE s.id IN (
+                        SELECT bi.seat_id
+                        FROM booking_items bi
+                        WHERE bi.booking_id = :bookingId
+                    )
+                      AND s.status <> 'RESERVED'
+                    """,
+            nativeQuery = true
+    )
+    int releaseSeatHoldsByBookingId(@Param("bookingId") UUID bookingId);
 }

@@ -2,6 +2,9 @@
 
 package com.example.SKALA_Mini_Project_1.modules.payments.repository;
 
+import java.time.OffsetDateTime;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -11,6 +14,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.Payment;
+import com.example.SKALA_Mini_Project_1.modules.payments.domain.PaymentStatus;
 
 import jakarta.persistence.LockModeType;
 
@@ -28,4 +32,10 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     Optional<Payment> findByBookingId(UUID bookingId);
 
     Optional<Payment> findByPgOrderId(String pgOrderId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    List<Payment> findTop200ByStatusInAndExpiredAtBeforeOrderByExpiredAtAsc(
+            Collection<PaymentStatus> statuses,
+            OffsetDateTime now
+    );
 }

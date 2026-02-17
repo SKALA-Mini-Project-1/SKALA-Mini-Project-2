@@ -1,6 +1,8 @@
 package com.example.SKALA_Mini_Project_1.modules.bookings.repository;
 
 import com.example.SKALA_Mini_Project_1.modules.bookings.domain.Booking;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -14,14 +16,20 @@ import java.util.UUID;
 public interface BookingRepository extends JpaRepository<Booking, UUID> {
     Optional<Booking> findByIdAndUserId(UUID id, Long userId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select b from Booking b where b.id = :id")
+    Optional<Booking> findByIdForUpdate(@Param("id") UUID id);
+
     interface BookingConcertInfo {
         String getConcertTitle();
+        String getConcertVenue();
         Instant getShowTime();
     }
 
     @Query(
             value = """
                     SELECT c.title AS concertTitle,
+                           c.location AS concertVenue,
                            s.start_time AS showTime
                     FROM bookings b
                     JOIN schedules s ON s.id = b.schedule_id

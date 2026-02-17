@@ -41,4 +41,5 @@ public interface BookingItemRepository extends JpaRepository<BookingItem, Long> 
             nativeQuery = true
     )
     List<Object[]> findBookedSeatDetails(UUID bookingId);
+
 }
