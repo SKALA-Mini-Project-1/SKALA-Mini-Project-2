@@ -110,6 +110,13 @@ public class QueueService {
         return QueueStatusResponse.waiting(rank + 1);
     }
 
+    public boolean leaveQueue(Long concertId, Long scheduleId, Long userId) {
+        validateScheduleBelongsToConcert(concertId, scheduleId);
+        String queueKey = getQueueKey(concertId, scheduleId);
+        Long removed = redisTemplate.opsForZSet().remove(queueKey, String.valueOf(userId));
+        return removed != null && removed > 0;
+    }
+
     private void validateScheduleBelongsToConcert(Long concertId, Long scheduleId) {
         if (concertId == null) {
             throw new IllegalArgumentException("concertId is required");

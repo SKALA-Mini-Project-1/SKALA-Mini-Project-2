@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.core.Authentication;
+import java.util.Map;
 
 import com.example.SKALA_Mini_Project_1.modules.waiting.service.QueueService;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.QueueStatusResponse;
@@ -44,4 +45,18 @@ public class QueueController {
         Long userId = (Long) authentication.getPrincipal();
         return queueService.getStatus(concertId, scheduleId, userId);
         }
+
+    @PostMapping("/leave")
+    public ResponseEntity<?> leaveQueue(
+            @RequestParam Long concertId,
+            @RequestParam Long scheduleId,
+            Authentication authentication
+    ) {
+        Long userId = (Long) authentication.getPrincipal();
+        boolean removed = queueService.leaveQueue(concertId, scheduleId, userId);
+        return ResponseEntity.ok(Map.of(
+                "status", "success",
+                "removed", removed
+        ));
+    }
 }

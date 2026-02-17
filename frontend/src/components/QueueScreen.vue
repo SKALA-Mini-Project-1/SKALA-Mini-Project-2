@@ -14,6 +14,7 @@ const props = defineProps<{
 const position = ref(0);
 const progress = ref(0);
 const isSurge = ref(false);
+const hasLeftQueue = ref(false);
 
 let queueTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -34,7 +35,7 @@ const scheduleIdValue = computed(() => {
   return Number.isNaN(parsed) ? null : parsed;
 });
 
-const buildQueueUrl = (path: 'start' | 'status') => {
+const buildQueueUrl = (path: 'start' | 'status' | 'leave') => {
   const params = new URLSearchParams();
   if (concertIdValue.value !== null) {
     params.set('concertId', String(concertIdValue.value));
@@ -44,6 +45,30 @@ const buildQueueUrl = (path: 'start' | 'status') => {
   }
   return `http://localhost:10010/api/ticketing/${path}?${params.toString()}`;
 };
+
+async function leaveQueue() {
+  if (hasLeftQueue.value || !canStartQueue.value || scheduleIdValue.value === null) {
+    return;
+  }
+
+  hasLeftQueue.value = true;
+  const token = localStorage.getItem("ticketkorea_access_token");
+  if (!token) {
+    return;
+  }
+
+  try {
+    await fetch(buildQueueUrl('leave'), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      keepalive: true
+    });
+  } catch (err) {
+    console.error("대기열 이탈 처리 실패", err);
+  }
+}
 
 // 1️⃣ 대기열 진입
 async function startQueue() {
@@ -95,6 +120,7 @@ async function checkStatus() {
 
     if (data.enter) {
       if (queueTimer) clearInterval(queueTimer);
+      hasLeftQueue.value = true;
 
       const seatToken = localStorage.getItem("ticketkorea_access_token");
 
@@ -125,12 +151,16 @@ onMounted(async () => {
   if (!canStartQueue.value) {
     return;
   }
+  hasLeftQueue.value = false;
   await startQueue(); // 🔥 반드시 먼저 진입
   queueTimer = setInterval(checkStatus, 1000);
+  window.addEventListener('pagehide', leaveQueue);
 });
 
 onBeforeUnmount(() => {
   if (queueTimer) clearInterval(queueTimer);
+  window.removeEventListener('pagehide', leaveQueue);
+  void leaveQueue();
 });
 
 const waitLabel = computed(() =>

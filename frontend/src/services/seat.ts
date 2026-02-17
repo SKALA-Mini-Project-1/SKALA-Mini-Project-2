@@ -50,3 +50,16 @@ export const holdSeat = async (scheduleId: number, section: string, rowNumber: n
     ...(token ? { token } : {})
   });
 };
+
+export const leaveSeatScreen = async (concertId: number, scheduleId: number) => {
+  const token = getToken();
+
+  return apiRequest<{ status: string }>(
+    `/api/seats/leave?concertId=${concertId}&scheduleId=${scheduleId}`,
+    {
+      method: 'POST',
+      keepalive: true,
+      ...(token ? { token } : {})
+    }
+  );
+};

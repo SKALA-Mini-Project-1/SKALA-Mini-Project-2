@@ -163,6 +163,11 @@ public class SeatReservationService {
         return SeatReleaseResult.RELEASED;
     }
 
+    public int releaseAllSeatHolds(Long scheduleId, Long userId) {
+        Long concertId = findConcertIdByScheduleId(scheduleId);
+        return redisLockRepository.releaseUserHeldSeats(concertId, scheduleId, String.valueOf(userId));
+    }
+
     private Seat validateSeat(Long scheduleId, Long seatId) {
         return seatRepository.findByIdAndScheduleId(seatId, scheduleId)
                 .orElseThrow(() -> new EntityNotFoundException("좌석이 존재하지 않습니다. ID: " + seatId));
