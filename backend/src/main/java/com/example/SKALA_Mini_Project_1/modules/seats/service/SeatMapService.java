@@ -19,7 +19,7 @@ public class SeatMapService {
     private final SeatRepository seatRepository;
     private final RedisLockRepository redisLockRepository;
 
-    public SeatMapResponse getSeatMap(Long concertId, Long scheduleId, Long userId) {
+    public SeatMapResponse getSeatMap(Long concertId, Long scheduleId, Long userId, Long seatAccessTtlSeconds) {
         List<Object[]> rows = seatRepository.findSeatMapByScheduleId(scheduleId);
 
         List<SeatMapResponse.SeatItem> seats = rows.stream()
@@ -29,14 +29,15 @@ public class SeatMapService {
         return SeatMapResponse.builder()
                 .concertId(concertId)
                 .seatCount(seats.size())
+                .seatAccessTtlSeconds(seatAccessTtlSeconds)
                 .seats(seats)
                 .build();
     }
 
-    public SeatMapResponse getSeatMapBySchedule(Long scheduleId, Long userId) {
+    public SeatMapResponse getSeatMapBySchedule(Long scheduleId, Long userId, Long seatAccessTtlSeconds) {
         Long concertId = seatRepository.findConcertIdByScheduleId(scheduleId)
                 .orElseThrow(() -> new IllegalArgumentException("유효하지 않은 scheduleId입니다. " + scheduleId));
-        return getSeatMap(concertId, scheduleId, userId);
+        return getSeatMap(concertId, scheduleId, userId, seatAccessTtlSeconds);
     }
 
     private SeatMapResponse.SeatItem mapToSeatItem(Long concertId, Long scheduleId, Long userId, Object[] row) {

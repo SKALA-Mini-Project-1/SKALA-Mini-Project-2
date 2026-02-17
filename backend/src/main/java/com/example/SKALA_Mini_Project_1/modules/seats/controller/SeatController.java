@@ -285,12 +285,12 @@ public class SeatController {
         redisTemplate.opsForValue().set(
                 RedisKeyGenerator.seatAccessKey(userId, concertId, scheduleId),
                 "1",
-                Duration.ofMinutes(10)
+                Duration.ofMinutes(5)
         );
         redisTemplate.opsForValue().set(
                 RedisKeyGenerator.seatAccessByScheduleKey(userId, scheduleId),
                 String.valueOf(concertId),
-                Duration.ofMinutes(10)
+                Duration.ofMinutes(5)
         );
 
         System.out.println("ACTIVE 증가 → 현재 인원: " + active);

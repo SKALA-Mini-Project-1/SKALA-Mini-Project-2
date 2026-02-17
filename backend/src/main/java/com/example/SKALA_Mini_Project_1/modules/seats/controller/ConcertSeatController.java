@@ -18,13 +18,15 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
-import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/concerts")
 @Tag(name = "콘서트", description = "콘서트 좌석 맵 조회 API")
 public class ConcertSeatController {
+
+    private static final Duration SEAT_ACCESS_TTL = Duration.ofMinutes(5);
 
     private final SeatMapService seatMapService;
     private final RedisTemplate<String, String> redisTemplate;
@@ -53,7 +55,10 @@ public class ConcertSeatController {
             return denied;
         }
 
-        return ResponseEntity.ok(seatMapService.getSeatMap(concertId, scheduleId, userId));
+        Long seatAccessTtlSeconds = resolveSeatAccessTtlSeconds(
+                RedisKeyGenerator.seatAccessKey(userId, concertId, scheduleId)
+        );
+        return ResponseEntity.ok(seatMapService.getSeatMap(concertId, scheduleId, userId, seatAccessTtlSeconds));
     }
 
     @GetMapping("/schedules/{scheduleId}/seats")
@@ -76,7 +81,10 @@ public class ConcertSeatController {
             return ResponseEntity.status(403).build();
         }
 
-        return ResponseEntity.ok(seatMapService.getSeatMapBySchedule(scheduleId, userId));
+        Long seatAccessTtlSeconds = resolveSeatAccessTtlSeconds(
+                RedisKeyGenerator.seatAccessByScheduleKey(userId, scheduleId)
+        );
+        return ResponseEntity.ok(seatMapService.getSeatMapBySchedule(scheduleId, userId, seatAccessTtlSeconds));
     }
 
     private ResponseEntity<SeatMapResponse> ensureSeatEntryAccess(
@@ -128,13 +136,21 @@ public class ConcertSeatController {
         }
 
         redisTemplate.delete(RedisKeyGenerator.seatEntryKey(entryToken));
-        redisTemplate.opsForValue().set(accessKey, "1", Duration.ofMinutes(10));
+        redisTemplate.opsForValue().set(accessKey, "1", SEAT_ACCESS_TTL);
         redisTemplate.opsForValue().set(
                 RedisKeyGenerator.seatAccessByScheduleKey(userId, scheduleId),
                 String.valueOf(concertId),
-                Duration.ofMinutes(10)
+                SEAT_ACCESS_TTL
         );
         redisTemplate.opsForValue().increment(RedisKeyGenerator.seatActiveKey(concertId, scheduleId));
         return null;
+    }
+
+    private Long resolveSeatAccessTtlSeconds(String accessKey) {
+        Long ttlSeconds = redisTemplate.getExpire(accessKey, TimeUnit.SECONDS);
+        if (ttlSeconds == null || ttlSeconds < 0) {
+            return 0L;
+        }
+        return ttlSeconds;
     }
 }
