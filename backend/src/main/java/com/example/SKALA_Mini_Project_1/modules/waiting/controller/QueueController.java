@@ -30,8 +30,7 @@ public class QueueController {
 
         Long userId = (Long) authentication.getPrincipal();
 
-        TicketingStartResponse response =queueService.startTicketing(concertId, scheduleId, userId);
-        TicketingStartResponse response =queueService.startTicketing(concertId, scheduleId, userId);
+        TicketingStartResponse response = queueService.startTicketing(concertId, scheduleId, userId);
 
         return ResponseEntity.ok(response);
         }
