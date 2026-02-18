@@ -24,6 +24,8 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 
@@ -49,6 +51,8 @@ import com.example.SKALA_Mini_Project_1.modules.payments.repository.PaymentRepos
 import com.example.SKALA_Mini_Project_1.modules.payments.repository.RefundRepository;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.access.AccessDeniedException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -57,6 +61,7 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class PaymentService {
+    private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
 
     private final PaymentRepository paymentRepository;
     private final RestTemplate restTemplate; // ✅ Bean 주입
@@ -73,7 +78,7 @@ public class PaymentService {
     private static final int CREATE_EXPIRE_MINUTES = 5;
     private static final int PAYING_HARD_DEADLINE_MINUTES = 10;
     private static final String BOOKING_STATUS_CANCELED = "CANCELED";
-    private static final String SEAT_STATUS_HOLD = "HOLD";
+    private static final String BOOKING_STATUS_CONFIRMED = "CONFIRMED";
 
 
         /**
@@ -532,23 +537,7 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             return;
         }
 
-        redisLockRepository.releaseUserHeldSeats(concertId, scheduleId, String.valueOf(userId));
-
-        String accessKey = RedisKeyGenerator.seatAccessKey(userId, concertId, scheduleId);
-        String accessByScheduleKey = RedisKeyGenerator.seatAccessByScheduleKey(userId, scheduleId);
-        boolean hadAccess = Boolean.TRUE.equals(redisTemplate.hasKey(accessKey))
-                || Boolean.TRUE.equals(redisTemplate.hasKey(accessByScheduleKey));
-
-        redisTemplate.delete(accessKey);
-        redisTemplate.delete(accessByScheduleKey);
-
-        if (hadAccess) {
-            String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
-            Long active = redisTemplate.opsForValue().decrement(activeKey);
-            if (active == null || active < 0) {
-                redisTemplate.opsForValue().set(activeKey, "0");
-            }
-        }
+        scheduleSeatCleanupAfterCommit(concertId, scheduleId, userId);
     }
 
     private void markRefundRequired(Payment payment, OffsetDateTime now, String orderId, String reason) {
@@ -572,12 +561,35 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         if (BOOKING_STATUS_CANCELED.equalsIgnoreCase(booking.getStatus())) {
             return false;
         }
-        Long firstSeatId = bookingItemRepository.findFirstSeatIdByBookingId(bookingId);
-        if (firstSeatId == null) {
+
+        Long scheduleId = booking.getScheduleId();
+        Long userId = booking.getUserId();
+        if (scheduleId == null || userId == null) {
             return false;
         }
-        long notHoldCount = seatRepository.countSeatsNotInStatusByBookingId(bookingId, SEAT_STATUS_HOLD);
-        return notHoldCount == 0;
+
+        Long concertId = bookingRepository.findConcertIdByBookingId(bookingId).orElse(null);
+        if (concertId == null) {
+            return false;
+        }
+
+        List<Long> seatIds = bookingItemRepository.findSeatIdsByBookingId(bookingId);
+        if (seatIds == null || seatIds.isEmpty()) {
+            return false;
+        }
+
+        String expectedOwner = String.valueOf(userId);
+        for (Long seatId : seatIds) {
+            if (seatId == null) {
+                return false;
+            }
+            String owner = redisLockRepository.getSeatOwner(concertId, scheduleId, seatId);
+            Long ttl = redisLockRepository.getSeatLockTtlSeconds(concertId, scheduleId, seatId);
+            if (!expectedOwner.equals(owner) || ttl == null || ttl <= 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void confirmPayment(Payment payment, OffsetDateTime now) {
@@ -596,8 +608,8 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
 
         Booking booking = bookingRepository.findById(payment.getBookingId())
                 .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
-        if (!"CONFIRMED".equalsIgnoreCase(booking.getStatus())) {
-            booking.setStatus("CONFIRMED");
+        if (!BOOKING_STATUS_CONFIRMED.equalsIgnoreCase(booking.getStatus())) {
+            booking.setStatus(BOOKING_STATUS_CONFIRMED);
             booking.setConfirmedAt(now);
         }
 
@@ -607,8 +619,31 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             Long concertId = bookingRepository.findConcertIdByBookingId(payment.getBookingId())
                     .orElseThrow(() -> new IllegalStateException("Concert not found for booking: " + payment.getBookingId()));
 
-            // 결제 확정 후에는 사용자 hold/access를 즉시 정리해 좌석 점유 잔존을 방지한다.
-            redisLockRepository.releaseUserHeldSeats(concertId, scheduleId, String.valueOf(userId));
+            // 결제 확정 핵심(DB)과 Redis 정리(후처리)를 분리해 Redis 장애가 결제 확정을 깨지 않도록 한다.
+            scheduleSeatCleanupAfterCommit(concertId, scheduleId, userId);
+        }
+    }
+
+    private void scheduleSeatCleanupAfterCommit(Long concertId, Long scheduleId, Long userId) {
+        Runnable cleanupTask = () -> cleanupSeatResources(concertId, scheduleId, userId);
+
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            cleanupTask.run();
+            return;
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                cleanupTask.run();
+            }
+        });
+    }
+
+    private void cleanupSeatResources(Long concertId, Long scheduleId, Long userId) {
+        try {
+            String userIdRaw = String.valueOf(userId);
+            redisLockRepository.releaseUserHeldSeats(concertId, scheduleId, userIdRaw);
 
             String accessKey = RedisKeyGenerator.seatAccessKey(userId, concertId, scheduleId);
             String accessByScheduleKey = RedisKeyGenerator.seatAccessByScheduleKey(userId, scheduleId);
@@ -617,14 +652,22 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
 
             redisTemplate.delete(accessKey);
             redisTemplate.delete(accessByScheduleKey);
+            redisTemplate.opsForSet().remove(
+                    RedisKeyGenerator.seatAccessIndexKey(concertId, scheduleId),
+                    userIdRaw
+            );
 
             if (hadAccess) {
-                String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
-                Long active = redisTemplate.opsForValue().decrement(activeKey);
-                if (active == null || active < 0) {
-                    redisTemplate.opsForValue().set(activeKey, "0");
-                }
+                redisLockRepository.decrementSeatActiveFloorZero(concertId, scheduleId);
             }
+        } catch (RuntimeException e) {
+            log.warn(
+                    "Deferred seat cleanup failed. concertId={}, scheduleId={}, userId={}, reason={}",
+                    concertId,
+                    scheduleId,
+                    userId,
+                    e.getMessage()
+            );
         }
     }
 
