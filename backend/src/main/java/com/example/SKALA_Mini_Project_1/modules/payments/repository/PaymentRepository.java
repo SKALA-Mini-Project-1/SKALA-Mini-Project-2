@@ -36,8 +36,36 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     long countByStatus(PaymentStatus status);
 
     List<Payment> findTop50ByStatusOrderByUpdatedAtDesc(PaymentStatus status);
-    List<Payment> findTop50ByUserIdAndStatusOrderByUpdatedAtDesc(Long userId, PaymentStatus status);
-    List<Payment> findTop100ByUserIdOrderByUpdatedAtDesc(Long userId);
+
+    @Query(
+            value = """
+                    SELECT p.*
+                    FROM payments p
+                    JOIN bookings b ON b.id = p.booking_id
+                    WHERE b.user_id = :userId
+                      AND p.status = :status
+                    ORDER BY p.updated_at DESC
+                    LIMIT 50
+                    """,
+            nativeQuery = true
+    )
+    List<Payment> findTop50ByBookingUserIdAndStatusOrderByUpdatedAtDesc(
+            @Param("userId") Long userId,
+            @Param("status") String status
+    );
+
+    @Query(
+            value = """
+                    SELECT p.*
+                    FROM payments p
+                    JOIN bookings b ON b.id = p.booking_id
+                    WHERE b.user_id = :userId
+                    ORDER BY p.updated_at DESC
+                    LIMIT 100
+                    """,
+            nativeQuery = true
+    )
+    List<Payment> findTop100ByBookingUserIdOrderByUpdatedAtDesc(@Param("userId") Long userId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<Payment> findTop200ByStatusInAndExpiredAtBeforeOrderByExpiredAtAsc(

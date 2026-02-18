@@ -124,15 +124,6 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
 
                 Payment payment = new Payment();
                 payment.setBookingId(bookingId);
-                payment.setUserId(userId);
-
-                // seatId는 이제 의미가 애매함(booking이 다좌석 가능)
-                // 최소한으로 유지하려면 대표 1개만 넣되, null이면 안되면 예외 처리
-                Long firstSeatId = bookingItemRepository.findFirstSeatIdByBookingId(bookingId);
-                if (firstSeatId == null) {
-                    throw new IllegalStateException("no seat found for booking");
-                }
-                payment.setSeatId(firstSeatId);
 
                 payment.setAmount(amount);
 
@@ -170,8 +161,6 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         return new PaymentGetResponse(
                 p.getId(),
                 p.getBookingId(),
-                p.getUserId(),
-                p.getSeatId(),
                 p.getAmount(),
                 p.getStatus().name(),
                 p.getCreatedAt(),
@@ -676,9 +665,9 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         if (userId == null) {
             throw new AccessDeniedException("인증 사용자 정보가 없습니다.");
         }
-        List<Payment> payments = paymentRepository.findTop50ByUserIdAndStatusOrderByUpdatedAtDesc(
+        List<Payment> payments = paymentRepository.findTop50ByBookingUserIdAndStatusOrderByUpdatedAtDesc(
                 userId,
-                PaymentStatus.REFUND_REQUIRED
+                PaymentStatus.REFUND_REQUIRED.name()
         );
         List<Map<String, Object>> rows = new ArrayList<>();
 
@@ -702,7 +691,7 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             throw new AccessDeniedException("인증 사용자 정보가 없습니다.");
         }
 
-        List<Payment> payments = paymentRepository.findTop100ByUserIdOrderByUpdatedAtDesc(userId);
+        List<Payment> payments = paymentRepository.findTop100ByBookingUserIdOrderByUpdatedAtDesc(userId);
         List<Map<String, Object>> rows = new ArrayList<>();
 
         for (Payment payment : payments) {
@@ -785,7 +774,7 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             throw new IllegalStateException("Payment is not REFUND_REQUIRED: " + payment.getStatus());
         }
 
-        Refund existing = refundRepository.findTopByPaymentIdOrderByCreatedAtDesc(paymentId).orElse(null);
+        Refund existing = refundRepository.findTopByPaymentIdOrderByRequestedAtDesc(paymentId).orElse(null);
         if (existing != null && ("REQUESTED".equalsIgnoreCase(existing.getStatus())
                 || "COMPLETED".equalsIgnoreCase(existing.getStatus()))) {
             Map<String, Object> already = new HashMap<>();
@@ -804,8 +793,6 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         refund.setReasonCode((reasonCode == null || reasonCode.isBlank()) ? "EXPIRED_AFTER_PAY" : reasonCode);
         refund.setAmount(BigDecimal.valueOf(payment.getAmount() == null ? 0L : payment.getAmount()));
         refund.setRequestedAt(now);
-        refund.setCreatedAt(now);
-        refund.setUpdatedAt(now);
         Refund saved = refundRepository.save(refund);
 
         recordEvent(payment, "REFUND_REQUESTED", payment.getStatus().name(), payment.getStatus().name(), null, payment.getPgOrderId());
@@ -830,13 +817,12 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             throw new IllegalStateException("Payment is not REFUND_REQUIRED: " + payment.getStatus());
         }
 
-        Refund refund = refundRepository.findTopByPaymentIdOrderByCreatedAtDesc(paymentId)
+        Refund refund = refundRepository.findTopByPaymentIdOrderByRequestedAtDesc(paymentId)
                 .orElseThrow(() -> new IllegalStateException("No refund request found for payment: " + paymentId));
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         refund.setStatus("COMPLETED");
         refund.setCompletedAt(now);
-        refund.setUpdatedAt(now);
         if (pgRefundId != null && !pgRefundId.isBlank()) {
             refund.setPgRefundId(pgRefundId);
         }
@@ -902,7 +888,12 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
     }
 
     private void ensureOwner(Payment payment, Long userId) {
-        if (userId == null || payment.getUserId() == null || !payment.getUserId().equals(userId)) {
+        if (userId == null) {
+            throw new AccessDeniedException("본인 결제만 조회/처리할 수 있습니다.");
+        }
+        Booking booking = bookingRepository.findById(payment.getBookingId())
+                .orElseThrow(() -> new EntityNotFoundException("Booking not found: " + payment.getBookingId()));
+        if (booking.getUserId() == null || !booking.getUserId().equals(userId)) {
             throw new AccessDeniedException("본인 결제만 조회/처리할 수 있습니다.");
         }
     }
