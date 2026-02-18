@@ -14,8 +14,6 @@ import lombok.Setter;
 public class PaymentGetResponse {
     private UUID id;
     private UUID bookingId;
-    private Long userId;
-    private Long seatId;
     private Long amount;
     private String status;
     private OffsetDateTime createdAt;

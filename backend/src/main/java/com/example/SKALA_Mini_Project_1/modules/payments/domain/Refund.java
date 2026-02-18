@@ -47,9 +47,4 @@ public class Refund {
     @Column(name = "completed_at")
     private OffsetDateTime completedAt;
 
-    @Column(name = "created_at")
-    private OffsetDateTime createdAt;
-
-    @Column(name = "updated_at")
-    private OffsetDateTime updatedAt;
 }

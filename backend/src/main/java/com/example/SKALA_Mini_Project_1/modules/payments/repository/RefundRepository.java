@@ -9,8 +9,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.Refund;
 
 public interface RefundRepository extends JpaRepository<Refund, UUID> {
-    Optional<Refund> findTopByPaymentIdOrderByCreatedAtDesc(UUID paymentId);
+    Optional<Refund> findTopByPaymentIdOrderByRequestedAtDesc(UUID paymentId);
 
-    List<Refund> findTop50ByStatusOrderByCreatedAtAsc(String status);
+    List<Refund> findTop50ByStatusOrderByRequestedAtAsc(String status);
 }
-

@@ -28,12 +28,6 @@ public class Payment {
     @Column(name = "id", columnDefinition = "uuid")
     private UUID id;
 
-    @Column(name = "user_id")
-    private Long userId;
-
-    @Column(name = "seat_id")
-    private Long seatId;
-
     @Column(name = "amount", precision = 12, scale = 2)
     private Long amount;
 

@@ -42,3 +42,7 @@ desktop.ini
 *.sql
 # 만약 DB 덤프 파일을 로컬에서 관리한다면 아래의 내용 제외
 /db_dumps/
+
+# Local docs/papers
+/paper/
+/backend/src/main/java/com/example/SKALA_Mini_Project_1/modules/payments/paper/
