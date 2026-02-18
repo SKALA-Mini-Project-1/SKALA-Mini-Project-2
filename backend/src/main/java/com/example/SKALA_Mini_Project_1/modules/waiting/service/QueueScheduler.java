@@ -1,5 +1,6 @@
 package com.example.SKALA_Mini_Project_1.modules.waiting.service;
 
+import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -22,7 +23,7 @@ public class QueueScheduler {
             return;
         }
 
-        Set<String> queueKeys = redisTemplate.keys("queue:concert:*:schedule:*");
+        Set<String> queueKeys = redisTemplate.opsForSet().members(RedisKeyGenerator.queueIndexKey());
         if (queueKeys == null || queueKeys.isEmpty()) {
             return;
         }
@@ -36,6 +37,7 @@ public class QueueScheduler {
 
             Set<String> members = redisTemplate.opsForZSet().range(queueKey, 0, -1);
             if (members == null || members.isEmpty()) {
+                queueService.cleanupQueueIndexIfEmpty(queueKey);
                 continue;
             }
 
@@ -45,6 +47,8 @@ public class QueueScheduler {
                 }
                 redisTemplate.opsForZSet().remove(queueKey, userId);
             }
+
+            queueService.cleanupQueueIndexIfEmpty(queueKey);
         }
     }
 
@@ -74,4 +78,5 @@ public class QueueScheduler {
             return null;
         }
     }
+
 }

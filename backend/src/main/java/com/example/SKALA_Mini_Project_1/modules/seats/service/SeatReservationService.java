@@ -49,7 +49,7 @@ public class SeatReservationService {
         String currentOwner = redisLockRepository.getSeatOwner(concertId, scheduleId, seatId);
 
         if (Objects.equals(currentOwner, userIdString)) {
-            redisLockRepository.unlockSeat(concertId, scheduleId, seatId);
+            redisLockRepository.unlockSeatIfOwner(concertId, scheduleId, seatId, userIdString);
             log.info("좌석 {} 선점 해제 성공 (사용자: {})", seatId, userId);
             return SeatHoldResult.RELEASED;
         }
@@ -58,13 +58,17 @@ public class SeatReservationService {
             throw new IllegalStateException("이미 다른 사용자가 선택한 좌석입니다.");
         }
 
-        int currentHoldCount = redisLockRepository.countUserHeldSeats(concertId, scheduleId, userIdString);
-        if (currentHoldCount >= MAX_HOLD_SEAT_COUNT) {
+        RedisLockRepository.SeatLockWithLimitResult lockResult = redisLockRepository.lockSeatWithLimit(
+                concertId,
+                scheduleId,
+                seatId,
+                userIdString,
+                MAX_HOLD_SEAT_COUNT
+        );
+        if (lockResult == RedisLockRepository.SeatLockWithLimitResult.LIMIT_EXCEEDED) {
             throw new IllegalArgumentException("좌석은 최대 4매까지만 선택할 수 있습니다.");
         }
-
-        boolean isLocked = redisLockRepository.lockSeat(concertId, scheduleId, seatId, userIdString);
-        if (!isLocked) {
+        if (lockResult != RedisLockRepository.SeatLockWithLimitResult.LOCKED) {
             throw new IllegalStateException("이미 다른 사용자가 선택한 좌석입니다.");
         }
 
@@ -103,7 +107,6 @@ public class SeatReservationService {
             throw new IllegalArgumentException("서로 다른 회차의 좌석은 함께 선택할 수 없습니다.");
         }
         Long scheduleId = scheduleIds.iterator().next();
-        int currentHoldCount = redisLockRepository.countUserHeldSeats(concertId, scheduleId, userIdString);
 
         List<Seat> seatsToLock = new ArrayList<>();
         List<Long> alreadyHeldByMe = new ArrayList<>();
@@ -124,17 +127,25 @@ public class SeatReservationService {
             return new BatchHoldResult(false, List.of(), failedSeatIds);
         }
 
-        if (currentHoldCount + seatsToLock.size() > MAX_HOLD_SEAT_COUNT) {
-            throw new IllegalArgumentException("좌석은 최대 4매까지만 선택할 수 있습니다.");
-        }
-
         List<Long> newlyLockedSeatIds = new ArrayList<>();
         for (Seat seat : seatsToLock) {
-            boolean locked = redisLockRepository.lockSeat(concertId, scheduleId, seat.getId(), userIdString);
-            if (!locked) {
+            RedisLockRepository.SeatLockWithLimitResult lockResult = redisLockRepository.lockSeatWithLimit(
+                    concertId,
+                    scheduleId,
+                    seat.getId(),
+                    userIdString,
+                    MAX_HOLD_SEAT_COUNT
+            );
+            if (lockResult == RedisLockRepository.SeatLockWithLimitResult.LIMIT_EXCEEDED) {
+                for (Long lockedSeatId : newlyLockedSeatIds) {
+                    redisLockRepository.unlockSeatIfOwner(concertId, scheduleId, lockedSeatId, userIdString);
+                }
+                throw new IllegalArgumentException("좌석은 최대 4매까지만 선택할 수 있습니다.");
+            }
+            if (lockResult != RedisLockRepository.SeatLockWithLimitResult.LOCKED) {
                 failedSeatIds.add(seat.getId());
                 for (Long lockedSeatId : newlyLockedSeatIds) {
-                    redisLockRepository.unlockSeat(concertId, scheduleId, lockedSeatId);
+                    redisLockRepository.unlockSeatIfOwner(concertId, scheduleId, lockedSeatId, userIdString);
                 }
                 return new BatchHoldResult(false, List.of(), failedSeatIds);
             }
@@ -159,8 +170,8 @@ public class SeatReservationService {
             throw new IllegalStateException("다른 사용자가 선점한 좌석은 해제할 수 없습니다.");
         }
 
-        redisLockRepository.unlockSeat(concertId, scheduleId, seatId);
-        return SeatReleaseResult.RELEASED;
+        boolean released = redisLockRepository.unlockSeatIfOwner(concertId, scheduleId, seatId, String.valueOf(userId));
+        return released ? SeatReleaseResult.RELEASED : SeatReleaseResult.ALREADY_RELEASED;
     }
 
     public int releaseAllSeatHolds(Long scheduleId, Long userId) {

@@ -3,6 +3,7 @@ package com.example.SKALA_Mini_Project_1.modules.seats.controller;
 import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
 import com.example.SKALA_Mini_Project_1.modules.seats.dto.SeatMapResponse;
 import com.example.SKALA_Mini_Project_1.modules.seats.service.SeatMapService;
+import com.example.SKALA_Mini_Project_1.modules.waiting.service.QueueService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -30,6 +31,7 @@ public class ConcertSeatController {
 
     private final SeatMapService seatMapService;
     private final RedisTemplate<String, String> redisTemplate;
+    private final QueueService queueService;
 
     @GetMapping("/{concertId}/seats")
     @Operation(
@@ -102,7 +104,7 @@ public class ConcertSeatController {
             return ResponseEntity.status(403).build();
         }
 
-        String tokenPayload = redisTemplate.opsForValue().get(RedisKeyGenerator.seatEntryKey(entryToken));
+        String tokenPayload = queueService.consumeEntryToken(entryToken);
         if (tokenPayload == null) {
             return ResponseEntity.status(403).build();
         }
@@ -135,14 +137,16 @@ public class ConcertSeatController {
             return ResponseEntity.status(403).build();
         }
 
-        redisTemplate.delete(RedisKeyGenerator.seatEntryKey(entryToken));
         redisTemplate.opsForValue().set(accessKey, "1", SEAT_ACCESS_TTL);
         redisTemplate.opsForValue().set(
                 RedisKeyGenerator.seatAccessByScheduleKey(userId, scheduleId),
                 String.valueOf(concertId),
                 SEAT_ACCESS_TTL
         );
-        redisTemplate.opsForValue().increment(RedisKeyGenerator.seatActiveKey(concertId, scheduleId));
+        redisTemplate.opsForSet().add(
+                RedisKeyGenerator.seatAccessIndexKey(concertId, scheduleId),
+                String.valueOf(userId)
+        );
         return null;
     }
 

@@ -16,6 +16,8 @@ const progress = ref(0);
 const isSurge = ref(false);
 const hasLeftQueue = ref(false);
 const API_BASE_URL = ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '').replace(/\/$/, '');
+const nullRankStreak = ref(0);
+const requeueInFlight = ref(false);
 
 let queueTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -108,6 +110,15 @@ async function startQueue() {
   );
 
   console.log("START RESPONSE STATUS:", res.status);
+  if (!res.ok) {
+    throw new Error(`대기열 진입 실패 (${res.status})`);
+  }
+
+  const data = await res.json().catch(() => null);
+  if (data && typeof data.rank === 'number') {
+    position.value = data.rank;
+    nullRankStreak.value = 0;
+  }
 }
 
 
@@ -132,9 +143,6 @@ async function checkStatus() {
     console.log("status data:", data);
 
     if (data.enter) {
-      if (queueTimer) clearInterval(queueTimer);
-      hasLeftQueue.value = true;
-
       const seatToken = localStorage.getItem("ticketkorea_access_token");
 
       const seatRes = await fetch(buildSeatEntryUrl(data.entryToken), {
@@ -144,10 +152,39 @@ async function checkStatus() {
       });
 
       if (seatRes.ok) {
+        if (queueTimer) clearInterval(queueTimer);
+        hasLeftQueue.value = true;
         emit("queueComplete");
+      } else {
+        // enter=true 이후 좌석 진입이 실패하면 큐에서 유실될 수 있어 재진입을 시도한다.
+        if (!requeueInFlight.value) {
+          requeueInFlight.value = true;
+          try {
+            await startQueue();
+          } finally {
+            requeueInFlight.value = false;
+          }
+        }
       }
     } else {
-      position.value = data.rank ?? 0;
+      if (typeof data.rank === 'number') {
+        position.value = data.rank;
+        nullRankStreak.value = 0;
+      } else {
+        // 실제 큐에 없는 상태면 1 같은 이전 값이 고정되지 않도록 0으로 초기화한다.
+        position.value = 0;
+        nullRankStreak.value += 1;
+        // rank=null 상태가 반복되면 유실 복구를 위해 재진입을 시도한다.
+        if (nullRankStreak.value >= 3 && !requeueInFlight.value) {
+          requeueInFlight.value = true;
+          try {
+            await startQueue();
+          } finally {
+            requeueInFlight.value = false;
+            nullRankStreak.value = 0;
+          }
+        }
+      }
     }
 
   } catch (err) {
@@ -162,7 +199,11 @@ onMounted(async () => {
     return;
   }
   hasLeftQueue.value = false;
-  await startQueue(); // 🔥 반드시 먼저 진입
+  try {
+    await startQueue(); // 🔥 반드시 먼저 진입
+  } catch (err) {
+    console.error("대기열 시작 실패", err);
+  }
   queueTimer = setInterval(checkStatus, 1000);
   window.addEventListener('pagehide', leaveQueue);
 });

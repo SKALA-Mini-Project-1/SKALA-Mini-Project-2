@@ -1,6 +1,10 @@
 package com.example.SKALA_Mini_Project_1.global.redis;
 
 public class RedisKeyGenerator {
+    public static String queueIndexKey() {
+        return "queue:index:keys";
+    }
+
     public static String queueKey(Long concertId, Long scheduleId) {
         return "queue:concert:" + concertId + ":schedule:" + scheduleId;
     }
@@ -13,6 +17,10 @@ public class RedisKeyGenerator {
         return "seat:active:concert:" + concertId + ":schedule:" + scheduleId;
     }
 
+    public static String seatActiveIndexKey() {
+        return "seat:active:index:keys";
+    }
+
     public static String seatEntryKey(String entryToken) {
         return "seat:entry:" + entryToken;
     }
@@ -23,6 +31,14 @@ public class RedisKeyGenerator {
 
     public static String seatAccessByScheduleKey(Long userId, Long scheduleId) {
         return "seat:access:user:" + userId + ":schedule:" + scheduleId;
+    }
+
+    public static String seatAccessIndexKey(Long concertId, Long scheduleId) {
+        return "seat:access:index:concert:" + concertId + ":schedule:" + scheduleId;
+    }
+
+    public static String seatUserHoldsKey(Long concertId, Long scheduleId, String userId) {
+        return "seat:user:holds:concert:" + concertId + ":schedule:" + scheduleId + ":user:" + userId;
     }
 
     public static String queueHeartbeatKey(Long concertId, Long scheduleId, String userId) {

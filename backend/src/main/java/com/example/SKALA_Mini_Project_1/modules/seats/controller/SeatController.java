@@ -26,6 +26,8 @@ import com.example.SKALA_Mini_Project_1.modules.seats.dto.SeatSelectRequest;
 import com.example.SKALA_Mini_Project_1.modules.seats.repository.SeatRepository;
 import com.example.SKALA_Mini_Project_1.modules.seats.service.SeatReservationService;
 import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
+import com.example.SKALA_Mini_Project_1.global.redis.RedisLockRepository;
+import com.example.SKALA_Mini_Project_1.modules.waiting.service.QueueService;
 
 
 import org.springframework.data.redis.core.RedisTemplate;
@@ -42,6 +44,8 @@ public class SeatController {
     private final SeatReservationService seatReservationService;
     private final RedisTemplate<String, String> redisTemplate;
     private final SeatRepository seatRepository;
+    private final QueueService queueService;
+    private final RedisLockRepository redisLockRepository;
 
     
 
@@ -241,15 +245,14 @@ public class SeatController {
 
         redisTemplate.delete(accessKey);
         redisTemplate.delete(accessByScheduleKey);
+        redisTemplate.opsForSet().remove(
+                RedisKeyGenerator.seatAccessIndexKey(concertId, scheduleId),
+                String.valueOf(userId)
+        );
 
         Long active = null;
         if (hadAccess) {
-            String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
-            active = redisTemplate.opsForValue().decrement(activeKey);
-            if (active == null || active < 0) {
-                redisTemplate.opsForValue().set(activeKey, "0");
-                active = 0L;
-            }
+            active = redisLockRepository.decrementSeatActiveFloorZero(concertId, scheduleId);
         }
 
         return ResponseEntity.ok(Map.of(
@@ -287,9 +290,7 @@ public class SeatController {
                 @RequestParam("scheduleId") Long scheduleId
         ) {
 
-        String key = RedisKeyGenerator.seatEntryKey(token);
-
-        String tokenPayload = redisTemplate.opsForValue().get(key);
+        String tokenPayload = queueService.consumeEntryToken(token);
 
         if (tokenPayload == null) {
                 return ResponseEntity.status(403)
@@ -319,13 +320,6 @@ public class SeatController {
             return ResponseEntity.status(403).body("회차 정보 불일치");
         }
 
-        // 1회용 토큰 삭제
-        redisTemplate.delete(key);
-
-        String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
-        Long active = redisTemplate.opsForValue()
-                .increment(activeKey);
-
         Long userId = Long.parseLong(parts[0]);
         redisTemplate.opsForValue().set(
                 RedisKeyGenerator.seatAccessKey(userId, concertId, scheduleId),
@@ -337,8 +331,10 @@ public class SeatController {
                 String.valueOf(concertId),
                 Duration.ofMinutes(5)
         );
-
-        System.out.println("ACTIVE 증가 → 현재 인원: " + active);
+        redisTemplate.opsForSet().add(
+                RedisKeyGenerator.seatAccessIndexKey(concertId, scheduleId),
+                String.valueOf(userId)
+        );
 
         return ResponseEntity.ok("좌석 선택 화면 입장 성공");
         }
