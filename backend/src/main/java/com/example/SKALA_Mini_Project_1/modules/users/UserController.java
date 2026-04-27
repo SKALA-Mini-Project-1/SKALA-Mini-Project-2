@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.SKALA_Mini_Project_1.common.ErrorResponse;
+import com.example.SKALA_Mini_Project_1.modules.fanscore.FanScoreService;
 import com.example.SKALA_Mini_Project_1.modules.users.dto.EmailVerificationCodeRequest;
 import com.example.SKALA_Mini_Project_1.modules.users.dto.EmailVerificationRequest;
 import com.example.SKALA_Mini_Project_1.modules.users.dto.EmailVerificationResponse;
@@ -42,6 +43,7 @@ public class UserController {
     
     private final UserService userService;
     private final EmailVerificationService emailVerificationService;
+    private final FanScoreService fanScoreService;
 
     
     @Operation(summary = "이메일 인증 코드 발송", description = "회원가입을 위한 이메일 인증 코드를 발송합니다")
@@ -152,13 +154,14 @@ public class UserController {
                 .getPrincipal();
         
         User user = userService.getUserById(userId);
+        int totalFanScore = fanScoreService.getTotalFanScore(userId);
         
         return ResponseEntity.ok(Map.of(
             "userId", user.getId(),
             "email", user.getEmail(),
             "name", user.getName(),
             "phone", user.getPhone() == null ? "" : user.getPhone(),
-            "fanScore", user.getFanScore() == null ? 0 : user.getFanScore(),
+            "fanScore", totalFanScore,
             "message", "인증된 사용자 정보 조회 성공"
         ));
     }
@@ -171,13 +174,14 @@ public class UserController {
                 .getPrincipal();
 
         User user = userService.updateMyInfo(userId, request);
+        int totalFanScore = fanScoreService.getTotalFanScore(userId);
 
         return ResponseEntity.ok(Map.of(
                 "userId", user.getId(),
                 "email", user.getEmail(),
                 "name", user.getName(),
                 "phone", user.getPhone() == null ? "" : user.getPhone(),
-                "fanScore", user.getFanScore() == null ? 0 : user.getFanScore(),
+                "fanScore", totalFanScore,
                 "message", "내 정보 수정 성공"
         ));
     }

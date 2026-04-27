@@ -65,11 +65,6 @@ const fanProgress = computed(() => {
   return Math.round((score / 5000) * 100);
 });
 
-const queuePriorityBoostMs = computed(() => {
-  const score = Math.max(0, Math.min(5000, myInfo.value?.fanScore ?? 0));
-  return score;
-});
-
 const loadBookings = async () => {
   const token = getToken();
   if (!myInfo.value || !token) {
@@ -294,7 +289,7 @@ onMounted(() => {
           <div class="mb-2 flex items-center justify-between">
             <div class="flex items-center gap-2 text-[#203c5b]">
               <Trophy :size="16" />
-              <span class="text-sm font-extrabold">팬 점수</span>
+              <span class="text-sm font-extrabold">누적 팬 점수</span>
             </div>
             <span class="rounded-full px-2 py-1 text-xs font-bold" :class="fanTierClass">{{ fanTier }}</span>
           </div>
@@ -302,8 +297,8 @@ onMounted(() => {
           <div class="mt-3 h-2 overflow-hidden rounded-full bg-[#e8eef5]">
             <div class="h-full rounded-full bg-gradient-to-r from-[#ff9a44] to-[#ff6b00]" :style="{ width: `${fanProgress}%` }"></div>
           </div>
-          <p class="mt-2 text-xs text-[#6c83a0]">범위 0~5000점 (1점 = 1ms 우선순위 가중치)</p>
-          <p class="mt-1 text-xs font-semibold text-[#395a7c]">현재 반영값: {{ queuePriorityBoostMs }}ms</p>
+          <p class="mt-2 text-xs text-[#6c83a0]">공연별 실제 대기열 우선순위는 해당 아티스트 팬점수 기준으로 계산됩니다.</p>
+          <p class="mt-1 text-xs font-semibold text-[#395a7c]">아티스트별 팬점수는 대기열 진입 시 최대 5000ms까지 우선순위에 반영됩니다.</p>
         </div>
 
         <p v-if="profileSaveError" class="mt-3 text-sm font-bold text-red-600">{{ profileSaveError }}</p>
