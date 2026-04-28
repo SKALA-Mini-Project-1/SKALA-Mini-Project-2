@@ -1,0 +1,7 @@
+.git
+.github
+**/build
+**/.gradle
+**/node_modules
+frontend/dist
+backend/build
