@@ -31,6 +31,7 @@ import org.springframework.web.client.RestTemplate;
 
 import com.example.SKALA_Mini_Project_1.modules.bookings.domain.Booking;
 import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
+import com.example.SKALA_Mini_Project_1.modules.fanscore.FanScoreService;
 import com.example.SKALA_Mini_Project_1.modules.payments.client.TossConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingItemRepository;
 import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository;
@@ -73,6 +74,7 @@ public class PaymentService {
     private final PaymentEventRepository paymentEventRepository;
     private final RedisLockRepository redisLockRepository;
     private final RedisTemplate<String, String> redisTemplate;
+    private final FanScoreService fanScoreService;
 
     private static final Map<PaymentStatus, Set<PaymentStatus>> transitionMap = new EnumMap<>(PaymentStatus.class);
     private static final int CREATE_EXPIRE_MINUTES = 5;
@@ -607,6 +609,8 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         if (scheduleId != null && userId != null) {
             Long concertId = bookingRepository.findConcertIdByBookingId(payment.getBookingId())
                     .orElseThrow(() -> new IllegalStateException("Concert not found for booking: " + payment.getBookingId()));
+
+            fanScoreService.applyConfirmedBookingScore(payment.getBookingId(), userId);
 
             // 결제 확정 핵심(DB)과 Redis 정리(후처리)를 분리해 Redis 장애가 결제 확정을 깨지 않도록 한다.
             scheduleSeatCleanupAfterCommit(concertId, scheduleId, userId);

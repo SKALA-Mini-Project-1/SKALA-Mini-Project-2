@@ -1,7 +1,7 @@
 package com.example.SKALA_Mini_Project_1.modules.waiting.service;
 
 import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
-import com.example.SKALA_Mini_Project_1.modules.users.User;
+import com.example.SKALA_Mini_Project_1.modules.fanscore.FanScoreService;
 import com.example.SKALA_Mini_Project_1.modules.users.UserRepository;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.QueueStatusResponse;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.TicketingStartResponse;
@@ -24,7 +24,6 @@ import java.util.function.Supplier;
 public class QueueService {
 
     private static final long MAX_SEAT_CAPACITY = 500;
-    private static final int MAX_WEIGHT_MILLIS = 5000; // 팬점수 최대 보정치
     private static final Duration QUEUE_HEARTBEAT_TTL = Duration.ofMinutes(10);
     private static final Duration ENTRY_TOKEN_TTL = Duration.ofSeconds(180);
     private static final Duration SCHEDULE_VALIDATE_CACHE_TTL = Duration.ofMinutes(10);
@@ -72,15 +71,15 @@ public class QueueService {
     private final RedisTemplate<String, String> redisTemplate;
     private final UserRepository userRepository;
     private final JdbcTemplate jdbcTemplate;
+    private final FanScoreService fanScoreService;
 
     public TicketingStartResponse startTicketing(Long concertId, Long scheduleId, Long userId) {
-        User user = userRepository.findById(userId)
+        userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("사용자 없음"));
 
         validateScheduleBelongsToConcert(concertId, scheduleId);
 
-        int fanScore = user.getFanScore() == null ? 0 : user.getFanScore();
-        long fanWeightMillis = Math.max(0, (long) fanScore * 100L);
+        long fanWeightMillis = fanScoreService.getQueuePriorityBoostMillis(userId, concertId);
         long rank = enterQueue(concertId, scheduleId, String.valueOf(userId), fanWeightMillis);
         return TicketingStartResponse.waiting(rank + 1);
     }
@@ -166,7 +165,7 @@ public class QueueService {
         runWithRedisRetry(() -> redisTemplate.opsForSet().add(RedisKeyGenerator.seatActiveIndexKey(), activeKey));
 
         long now = System.currentTimeMillis();
-        long weight = Math.min(fandomWeightMillis, MAX_WEIGHT_MILLIS);
+        long weight = Math.min(fandomWeightMillis, FanScoreService.MAX_QUEUE_PRIORITY_BOOST_MILLIS);
         long jitter = ThreadLocalRandom.current().nextLong(0, 50);
         long score = now - weight + jitter;
 
