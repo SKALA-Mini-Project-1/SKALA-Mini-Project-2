@@ -1,6 +1,8 @@
 package com.example.SKALA_Mini_Project_1.modules.bookings.service;
 
 import com.example.SKALA_Mini_Project_1.global.redis.RedisLockRepository;
+import com.example.SKALA_Mini_Project_1.integration.userauth.InternalUserProfileResponse;
+import com.example.SKALA_Mini_Project_1.integration.userauth.UserAuthClient;
 import com.example.SKALA_Mini_Project_1.modules.bookings.domain.Booking;
 import com.example.SKALA_Mini_Project_1.modules.bookings.domain.BookingItem;
 import com.example.SKALA_Mini_Project_1.modules.bookings.dto.CreateBookingRequest;
@@ -9,8 +11,6 @@ import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingItemR
 import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository;
 import com.example.SKALA_Mini_Project_1.modules.seats.repository.SeatBookingView;
 import com.example.SKALA_Mini_Project_1.modules.seats.repository.SeatRepository;
-import com.example.SKALA_Mini_Project_1.modules.users.User;
-import com.example.SKALA_Mini_Project_1.modules.users.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
@@ -33,7 +33,7 @@ public class BookingService {
     private final RedisLockRepository redisLockRepository;
     private final BookingRepository bookingRepository;
     private final BookingItemRepository bookingItemRepository;
-    private final UserRepository userRepository;
+    private final UserAuthClient userAuthClient;
 
     @Transactional
     public CreateBookingResponse createBooking(Long userId, CreateBookingRequest request) {
@@ -139,8 +139,7 @@ public class BookingService {
         BookingRepository.BookingConcertInfo concertInfo = bookingRepository.findBookingConcertInfo(bookingId)
                 .orElseThrow(() -> new EntityNotFoundException("예약 요약 정보를 찾을 수 없습니다."));
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new EntityNotFoundException("사용자 정보를 찾을 수 없습니다."));
+        InternalUserProfileResponse userProfile = userAuthClient.getUserProfile(userId);
 
         List<Object[]> seatRows = bookingItemRepository.findBookedSeatDetails(bookingId);
         List<Map<String, Object>> seats = new ArrayList<>();
@@ -168,9 +167,9 @@ public class BookingService {
         boolean payable = "HOLDING".equalsIgnoreCase(booking.getStatus()) && remainingSeconds > 0;
 
         Map<String, Object> booker = new HashMap<>();
-        booker.put("name", user.getName());
-        booker.put("email", user.getEmail());
-        booker.put("phone", user.getPhone());
+        booker.put("name", userProfile.name());
+        booker.put("email", userProfile.email());
+        booker.put("phone", userProfile.phone());
 
         Map<String, Object> concert = new HashMap<>();
         concert.put("concertName", concertInfo.getConcertTitle());

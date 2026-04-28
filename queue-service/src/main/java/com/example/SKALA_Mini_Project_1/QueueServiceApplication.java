@@ -8,6 +8,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @SpringBootApplication(scanBasePackages = {
         "com.example.SKALA_Mini_Project_1.common",
         "com.example.SKALA_Mini_Project_1.global",
+        "com.example.SKALA_Mini_Project_1.integration",
         "com.example.SKALA_Mini_Project_1.modules.waiting",
         "com.example.SKALA_Mini_Project_1.modules.users",
         "com.example.SKALA_Mini_Project_1.modules.fanscore"

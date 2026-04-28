@@ -20,6 +20,7 @@ services:
       - "6379:6379"
 
   user-auth-service:
+    image: team4-user-auth-service
     build:
       context: .
       dockerfile: user-auth-service/Dockerfile
@@ -41,6 +42,7 @@ services:
       - "18081:8080"
 
   concert-service:
+    image: team4-concert-service
     build:
       context: .
       dockerfile: concert-service/Dockerfile
@@ -58,6 +60,7 @@ services:
       - "18082:8080"
 
   queue-service:
+    image: team4-queue-service
     build:
       context: .
       dockerfile: queue-service/Dockerfile
@@ -68,6 +71,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_SECRET: your-secret-key-min-32-characters-long-for-hs256-algorithm-security
+      USER_AUTH_SERVICE_BASE_URL: http://user-auth-service:8080
     depends_on:
       - postgres
       - redis
@@ -75,6 +79,7 @@ services:
       - "18083:8080"
 
   ticketing-service:
+    image: team4-ticketing-service
     build:
       context: .
       dockerfile: ticketing-service/Dockerfile
@@ -85,6 +90,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_SECRET: your-secret-key-min-32-characters-long-for-hs256-algorithm-security
+      USER_AUTH_SERVICE_BASE_URL: http://user-auth-service:8080
     depends_on:
       - postgres
       - redis
@@ -92,6 +98,7 @@ services:
       - "18084:8080"
 
   payment-service:
+    image: team4-payment-service
     build:
       context: .
       dockerfile: payment-service/Dockerfile
@@ -126,6 +133,7 @@ services:
       - "8080:80"
 
   frontend:
+    image: team4-frontend
     build:
       context: ./frontend
       dockerfile: Dockerfile

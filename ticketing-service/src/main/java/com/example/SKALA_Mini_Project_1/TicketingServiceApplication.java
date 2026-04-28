@@ -6,6 +6,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @SpringBootApplication(scanBasePackages = {
         "com.example.SKALA_Mini_Project_1.common",
         "com.example.SKALA_Mini_Project_1.global",
+        "com.example.SKALA_Mini_Project_1.integration",
         "com.example.SKALA_Mini_Project_1.modules.bookings",
         "com.example.SKALA_Mini_Project_1.modules.seats"
 })

@@ -15,6 +15,8 @@
   - 루트에 Gradle 멀티모듈 MSA 구조를 신규로 추가함
   - 루트 `docker-compose.yaml` 로 `postgres`, `redis`, `gateway`, `frontend`, 5개 백엔드 서비스를 함께 띄울 수 있는 상태
   - `docker compose build`, `docker compose up -d`, Postgres 초기화, gateway를 통한 `concert-service` 조회까지 1차 검증 완료
+  - `user-auth 직접 참조 제거`, `concert/ticketing 읽기-쓰기 경계 정리`, `team4-*` 이미지명 반영까지 추가 완료
+  - 현재 커스텀 컨테이너는 `team4-*` 이미지명 기준으로 모두 기동 확인
 
 ## 최종 목표
 
@@ -335,8 +337,9 @@
 
 1. gateway 뒤에서 주요 사용자 흐름별 API smoke test 범위를 넓힌다.
 2. `ticketing-service` 와 `payment-service` 경계에서 실제 네트워크 호출로 바꿀 후보 지점을 정리한다.
-3. `.env`, `Secret`, `ConfigMap` 후보 값을 정리해 k8s 전환 준비를 시작한다.
-4. 이후 Kubernetes `Deployment` / `Service` / `ConfigMap` 초안으로 넘어간다.
+3. Harbor push 기준 태그 규칙과 레지스트리 변수 구조를 정리한다.
+4. `.env`, `Secret`, `ConfigMap` 후보 값을 정리해 k8s 전환 준비를 시작한다.
+5. 이후 Kubernetes `Deployment` / `Service` / `ConfigMap` 초안으로 넘어간다.
 
 ## 작업 로그
 
@@ -492,8 +495,8 @@
 - 따라서 아래는 아직 남아 있는 전이 구조다.
   - 공통 엔티티/리포지토리의 `shared-kernel` 공유
   - `payment-service` 가 `booking`, `seat`, `fanscore`, `user` 쪽 shared 코드에 의존
-  - `ticketing-service` 와 `concert-service` 가 Redis 토큰 소비 로직을 로컬 헬퍼로 유지
-- 이후 단계에서 점진적으로 내부 API 호출 또는 더 명확한 경계로 바꿔야 한다.
+  - `ticketing-service` 가 Redis 기반 좌석 입장 토큰 소비 로직을 로컬 헬퍼로 유지
+  - 이후 단계에서 점진적으로 내부 API 호출 또는 더 명확한 경계로 바꿔야 한다.
 
 ### 2026-04-28 - 정리 작업
 
@@ -590,6 +593,127 @@
   - 모든 서비스 API smoke test 확대
   - `ticketing-service` 와 `payment-service` 사이 전이 구조 축소
   - k8s 리소스 초안 작성
+
+### 2026-04-28 - user-auth 직접 참조 제거
+
+- 목적:
+  - `queue-service`, `ticketing-service` 가 `shared-kernel` 의 `UserRepository` 와 `User` 엔티티를 직접 참조하지 않도록 정리한다.
+  - 사용자 정보 소유 책임을 `user-auth-service` 로 더 명확히 모은다.
+- 적용 내용:
+  - `user-auth-service` 에 내부 사용자 조회 API를 추가했다.
+    - `GET /internal/users/{userId}`
+  - 관련 파일:
+    - `user-auth-service/.../modules/users/InternalUserController.java`
+    - `user-auth-service/.../modules/users/dto/InternalUserProfileResponse.java`
+  - `user-auth-service` 보안 설정에서 `/internal/users/**` 를 허용했다.
+  - `queue-service` 에 `integration.userauth.UserAuthClient` 를 추가했다.
+    - `QueueService.startTicketing()` 에서 더 이상 `UserRepository` 를 직접 조회하지 않고 `user-auth-service` 내부 API로 사용자 존재를 검증한다.
+  - `ticketing-service` 에 `integration.userauth.UserAuthClient` 를 추가했다.
+    - `BookingService.getBookingDetail()` 에서 더 이상 `UserRepository` / `User` 엔티티를 직접 참조하지 않고 내부 API로 사용자 프로필을 조회한다.
+- 설정 변경:
+  - `queue-service`, `ticketing-service` 에 `user-auth-service.base-url` 설정을 추가했다.
+  - compose 환경변수에도 `USER_AUTH_SERVICE_BASE_URL=http://user-auth-service:8080` 를 반영했다.
+- 검증:
+  - `curl -i http://localhost:18081/internal/users/999999`
+  - 결과: `HTTP/1.1 404`
+  - 즉 내부 사용자 조회 API가 비존재 사용자에 대해 404 로 응답하는 것까지 확인했다.
+
+### 2026-04-28 - concert/ticketing 읽기-쓰기 경계 정리
+
+- 목적:
+  - `concert-service` 는 좌석 맵 "조회" 만 담당하고, 좌석 화면 입장 권한 부여와 토큰 소비는 `ticketing-service` 가 담당하도록 정리한다.
+- 배경:
+  - 프론트는 이미 `queue -> ticketing(/api/seats/seats) -> concert(/api/concerts/.../seats)` 흐름을 사용하고 있었다.
+  - 따라서 `concert-service` 에 남아 있던 대기열 입장 토큰 소비 책임만 제거하면 읽기/쓰기 경계가 더 선명해진다.
+- 적용 내용:
+  - `concert-service` 의 `ConcertSeatController` 에서 `entryToken` 소비 로직을 제거했다.
+  - `concert-service` 는 이제 Redis 에 기록된 seat access 권한이 있는지만 확인하고, 없으면 `403` 으로 거절한다.
+  - `concert-service` 에서 더 이상 `QueueEntryTokenService` 를 사용하지 않으며, 해당 파일을 삭제했다.
+- 결과:
+  - 좌석 화면 입장/권한 부여는 `ticketing-service`
+  - 좌석 맵 조회는 `concert-service`
+  - 로 책임이 분리된 상태가 되었다.
+
+### 2026-04-28 - scanBasePackages 누락 이슈 수정
+
+- 내부 HTTP 클라이언트 추가 후 첫 기동에서 `queue-service`, `ticketing-service` 가 `UserAuthClient` 빈을 찾지 못해 종료했다.
+- 원인:
+  - 두 서비스의 `SpringBootApplication(scanBasePackages=...)` 에 `com.example.SKALA_Mini_Project_1.integration` 패키지가 포함되지 않았다.
+- 조치:
+  - `QueueServiceApplication`
+  - `TicketingServiceApplication`
+  - 두 파일 모두 scan 대상에 `integration` 패키지를 추가했다.
+- 결과:
+  - 두 서비스 모두 재빌드 후 정상 기동을 확인했다.
+
+### 2026-04-28 - team4 이미지명 정리
+
+- Harbor 업로드 전 단계로 로컬 compose 이미지명을 모두 `team4-*` 규칙으로 맞췄다.
+- 현재 커스텀 이미지명:
+  - `team4-user-auth-service`
+  - `team4-concert-service`
+  - `team4-queue-service`
+  - `team4-ticketing-service`
+  - `team4-payment-service`
+  - `team4-frontend`
+- `docker-compose.yaml` 에 각 서비스의 `image:` 를 위 이름으로 명시했다.
+- 이후 Harbor push 시 이 이름을 그대로 `tag/push` 기준으로 사용할 수 있다.
+
+### 2026-04-28 - gateway 베이스 경로 라우팅 재정리
+
+- 증상:
+  - 직접 `concert-service` 를 호출하면 `GET /api/concerts` 가 `200` 이었지만,
+  - gateway 경유 `GET /api/concerts` 는 재기동 중간 시점에 `401` 이 발생했다.
+- 원인:
+  - Nginx prefix location 설정으로 베이스 경로(`/api/concerts`) 요청이 upstream 에서 의도와 다르게 해석될 여지가 있었다.
+- 조치:
+  - `gateway/nginx.conf` 를 수정해
+    - 베이스 경로는 `location = /api/...`
+    - 하위 경로는 `location ^~ /api/.../`
+    - 로 분리했다.
+  - gateway 를 재시작해 새 설정을 반영했다.
+- 최종 검증:
+  - `curl -i http://localhost:8080/api/concerts`
+  - 결과: `HTTP/1.1 200`
+  - 샘플 콘서트 JSON 응답 확인
+
+### 2026-04-28 - 최종 상태 스냅샷
+
+- 최종 `docker compose ps -a` 기준 상태:
+  - `user-auth-service`: Up
+  - `concert-service`: Up
+  - `queue-service`: Up
+  - `ticketing-service`: Up
+  - `payment-service`: Up
+  - `frontend`: Up
+  - `gateway`: Up
+  - `postgres`: Up
+  - `redis`: Up
+- 추가 검증:
+  - `curl -i http://localhost:18081/internal/users/999999` -> `404`
+  - `curl -i http://localhost:18082/api/concerts` -> `200`
+  - `curl -i http://localhost:8080/api/concerts` -> `200`
+
+### 2026-04-28 - Harbor 이미지 푸시 완료
+
+- Harbor 정보:
+  - Registry: `amdp-registry.skala-ai.com`
+  - Project: `skala25a`
+- 로컬 `team4-*` 이미지를 Harbor 경로로 태그 후 push 완료했다.
+- 업로드한 이미지:
+  - `amdp-registry.skala-ai.com/skala25a/team4-user-auth-service:latest`
+  - `amdp-registry.skala-ai.com/skala25a/team4-concert-service:latest`
+  - `amdp-registry.skala-ai.com/skala25a/team4-queue-service:latest`
+  - `amdp-registry.skala-ai.com/skala25a/team4-ticketing-service:latest`
+  - `amdp-registry.skala-ai.com/skala25a/team4-payment-service:latest`
+  - `amdp-registry.skala-ai.com/skala25a/team4-frontend:latest`
+- 확인된 digest:
+  - `team4-user-auth-service`: `sha256:9969543dd4de9c7d48f521e83066f988d544cf430218dfef36fce044fac8cd36`
+  - `team4-concert-service`: `sha256:09417ff7d25f0c20c88202e8e99291d7b95e681da0929df1c2e76631de49ae71`
+  - `team4-queue-service`: `sha256:5297cc985a35696941a1c9868e4081a858917e517bfde57c47374ee4497975d5`
+  - `team4-ticketing-service`: `sha256:faa7a895e85457d1d9a27ee26bc4824a0428923aae4508fa265503a94dd1d31e`
+  - `team4-payment-service`: `sha256:313e5af18d15f24224a8c294919618769d6ae56c0ad4eac79d6476c5c69aaa69`
+  - `team4-frontend`: `sha256:ec7a05b990d6bd7ce5cdc10a10a1c8e39f1411b25ff5e8baa9dc36821e5958ee`
 
 ### 2026-04-28 - 현재까지 생성/수정된 핵심 파일
 

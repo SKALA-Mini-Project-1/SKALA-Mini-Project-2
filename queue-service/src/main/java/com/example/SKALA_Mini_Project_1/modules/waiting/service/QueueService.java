@@ -1,8 +1,8 @@
 package com.example.SKALA_Mini_Project_1.modules.waiting.service;
 
 import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
+import com.example.SKALA_Mini_Project_1.integration.userauth.UserAuthClient;
 import com.example.SKALA_Mini_Project_1.modules.fanscore.FanScoreService;
-import com.example.SKALA_Mini_Project_1.modules.users.UserRepository;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.QueueStatusResponse;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.TicketingStartResponse;
 import lombok.RequiredArgsConstructor;
@@ -69,13 +69,12 @@ public class QueueService {
             """;
 
     private final RedisTemplate<String, String> redisTemplate;
-    private final UserRepository userRepository;
+    private final UserAuthClient userAuthClient;
     private final JdbcTemplate jdbcTemplate;
     private final FanScoreService fanScoreService;
 
     public TicketingStartResponse startTicketing(Long concertId, Long scheduleId, Long userId) {
-        userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("사용자 없음"));
+        userAuthClient.ensureUserExists(userId);
 
         validateScheduleBelongsToConcert(concertId, scheduleId);
 

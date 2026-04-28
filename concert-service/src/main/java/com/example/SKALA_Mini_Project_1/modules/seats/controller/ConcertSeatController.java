@@ -2,7 +2,6 @@ package com.example.SKALA_Mini_Project_1.modules.seats.controller;
 
 import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
 import com.example.SKALA_Mini_Project_1.modules.seats.dto.SeatMapResponse;
-import com.example.SKALA_Mini_Project_1.modules.seats.service.QueueEntryTokenService;
 import com.example.SKALA_Mini_Project_1.modules.seats.service.SeatMapService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -18,7 +17,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 @RestController
@@ -27,11 +25,8 @@ import java.util.concurrent.TimeUnit;
 @Tag(name = "콘서트", description = "콘서트 좌석 맵 조회 API")
 public class ConcertSeatController {
 
-    private static final Duration SEAT_ACCESS_TTL = Duration.ofMinutes(5);
-
     private final SeatMapService seatMapService;
     private final RedisTemplate<String, String> redisTemplate;
-    private final QueueEntryTokenService queueEntryTokenService;
 
     @GetMapping("/{concertId}/seats")
     @Operation(
@@ -45,14 +40,13 @@ public class ConcertSeatController {
     })
     public ResponseEntity<SeatMapResponse> getSeatMap(
             @PathVariable Long concertId,
-            @RequestParam Long scheduleId,
-            @RequestParam(required = false) String entryToken
+            @RequestParam Long scheduleId
     ) {
         Long userId = (Long) SecurityContextHolder.getContext()
                 .getAuthentication()
                 .getPrincipal();
 
-        ResponseEntity<SeatMapResponse> denied = ensureSeatEntryAccess(userId, concertId, scheduleId, entryToken);
+        ResponseEntity<SeatMapResponse> denied = ensureSeatEntryAccess(userId, concertId, scheduleId);
         if (denied != null) {
             return denied;
         }
@@ -92,62 +86,13 @@ public class ConcertSeatController {
     private ResponseEntity<SeatMapResponse> ensureSeatEntryAccess(
             Long userId,
             Long concertId,
-            Long scheduleId,
-            String entryToken
+            Long scheduleId
     ) {
         String accessKey = RedisKeyGenerator.seatAccessKey(userId, concertId, scheduleId);
         if (redisTemplate.hasKey(accessKey) == Boolean.TRUE) {
             return null;
         }
-
-        if (entryToken == null || entryToken.isBlank()) {
-            return ResponseEntity.status(403).build();
-        }
-
-        String tokenPayload = queueEntryTokenService.consumeEntryToken(entryToken);
-        if (tokenPayload == null) {
-            return ResponseEntity.status(403).build();
-        }
-
-        String[] parts = tokenPayload.split(":");
-        if (parts.length != 2 && parts.length != 3) {
-            return ResponseEntity.status(403).build();
-        }
-
-        Long tokenUserId;
-        Long tokenConcertId;
-        Long tokenScheduleId = null;
-        try {
-            tokenUserId = Long.parseLong(parts[0]);
-            tokenConcertId = Long.parseLong(parts[1]);
-            if (parts.length == 3) {
-                tokenScheduleId = Long.parseLong(parts[2]);
-            }
-        } catch (NumberFormatException e) {
-            return ResponseEntity.status(403).build();
-        }
-
-        if (!userId.equals(tokenUserId)) {
-            return ResponseEntity.status(403).build();
-        }
-        if (!concertId.equals(tokenConcertId)) {
-            return ResponseEntity.status(403).build();
-        }
-        if (tokenScheduleId != null && !scheduleId.equals(tokenScheduleId)) {
-            return ResponseEntity.status(403).build();
-        }
-
-        redisTemplate.opsForValue().set(accessKey, "1", SEAT_ACCESS_TTL);
-        redisTemplate.opsForValue().set(
-                RedisKeyGenerator.seatAccessByScheduleKey(userId, scheduleId),
-                String.valueOf(concertId),
-                SEAT_ACCESS_TTL
-        );
-        redisTemplate.opsForSet().add(
-                RedisKeyGenerator.seatAccessIndexKey(concertId, scheduleId),
-                String.valueOf(userId)
-        );
-        return null;
+        return ResponseEntity.status(403).build();
     }
 
     private Long resolveSeatAccessTtlSeconds(String accessKey) {
