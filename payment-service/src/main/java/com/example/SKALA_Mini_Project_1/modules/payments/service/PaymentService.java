@@ -5,7 +5,6 @@ package com.example.SKALA_Mini_Project_1.modules.payments.service;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -15,20 +14,22 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.factory.annotation.Value;
 
-import com.example.SKALA_Mini_Project_1.modules.bookings.domain.Booking;
+import com.example.SKALA_Mini_Project_1.modules.payments.client.InternalBookedSeatDetailResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.client.InternalBookingHistoryDetailResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.client.InternalBookingHistoryDetailsResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.client.InternalBookingPaymentContextResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.client.InternalBookingFinalizationResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.client.InternalUserBookingIdsResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.client.TicketingBookingQueryClient;
 import com.example.SKALA_Mini_Project_1.modules.payments.client.TicketingFinalizationAction;
 import com.example.SKALA_Mini_Project_1.modules.payments.client.TicketingFinalizationClient;
 import com.example.SKALA_Mini_Project_1.modules.payments.client.TossConfirmResponse;
-import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingItemRepository;
-import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentGetResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentSubmitResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.TossWebhookRequest;
-import com.example.SKALA_Mini_Project_1.modules.payments.domain.PaymentEvent;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.Payment;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.PaymentStatus;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.Refund;
@@ -45,18 +46,19 @@ import lombok.RequiredArgsConstructor;
 public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final com.example.SKALA_Mini_Project_1.modules.payments.client.TossPaymentsClient tossPaymentsClient;
-    private final com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository bookingRepository;
-    private final BookingItemRepository bookingItemRepository;
     private final RefundRepository refundRepository;
     private final PaymentEventRepository paymentEventRepository;
+    private final PaymentEventRecorder paymentEventRecorder;
+    private final TicketingBookingQueryClient ticketingBookingQueryClient;
     private final TicketingFinalizationClient ticketingFinalizationClient;
     @Value("${payment.redirect.success-url:http://localhost:5173/payments/success}")
     private String paymentSuccessRedirectUrl;
     @Value("${payment.redirect.fail-url:http://localhost:5173/payments/fail}")
     private String paymentFailRedirectUrl;
-
-    private static final int CREATE_EXPIRE_MINUTES = 5;
-    private static final int PAYING_HARD_DEADLINE_MINUTES = 10;
+    @Value("${payment.expiration.create-minutes:5}")
+    private long createExpireMinutes;
+    @Value("${payment.expiration.paying-hard-deadline-minutes:10}")
+    private long payingHardDeadlineMinutes;
 
 
         /**
@@ -73,10 +75,9 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
     }
 
     // (권장) 동시성/중복 생성 방지: booking 락 조회로 바꾸면 더 안전
-    Booking booking = bookingRepository.findById(bookingId)
-            .orElseThrow(() -> new EntityNotFoundException("Booking not found: " + bookingId));
+    InternalBookingPaymentContextResponse bookingContext = ticketingBookingQueryClient.getPaymentContext(bookingId);
 
-    if (!userId.equals(booking.getUserId())) {
+    if (!userId.equals(bookingContext.userId())) {
         throw new IllegalArgumentException("booking user mismatch");
     }
 
@@ -91,11 +92,11 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             .orElseGet(() -> {
                 OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
-                if (booking.getTotalPrice() == null) {
+                if (bookingContext.totalPrice() == null) {
                     throw new IllegalStateException("booking totalPrice is required");
                 }
 
-                long amount = booking.getTotalPrice().longValue();
+                long amount = bookingContext.totalPrice().longValue();
                 if (amount <= 0) {
                     throw new IllegalStateException("booking amount is zero");
                 }
@@ -110,11 +111,19 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
 
                 payment.setCreatedAt(now);
                 payment.setUpdatedAt(now);
-                payment.setExpiredAt(now.plusMinutes(CREATE_EXPIRE_MINUTES));
+                payment.setExpiredAt(now.plusMinutes(createExpireMinutes));
                 payment.setHardDeadlineAt(null);
                 payment.setIdempotencyKey(null);
 
                 Payment saved = paymentRepository.save(payment);
+                paymentEventRecorder.record(
+                        saved,
+                        "PAYMENT_CREATED",
+                        null,
+                        saved.getStatus().name(),
+                        null,
+                        null
+                );
 
                 return new PaymentCreateResponse(
                         saved.getId(),
@@ -160,10 +169,10 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
     // 상태 전이
     String fromStatus = payment.getStatus() == null ? null : payment.getStatus().name();
     payment.changeStatus(PaymentStatus.PAYING);
-    recordEvent(payment, "SUBMIT_PAYING", fromStatus, payment.getStatus().name(), null, payment.getPgOrderId());
+    paymentEventRecorder.record(payment, "SUBMIT_PAYING", fromStatus, payment.getStatus().name(), null, payment.getPgOrderId());
 
     // 결제 진행(PAYING) 구간은 하드 데드라인 10분 정책을 적용한다.
-    OffsetDateTime hardDeadline = now.plusMinutes(PAYING_HARD_DEADLINE_MINUTES);
+    OffsetDateTime hardDeadline = now.plusMinutes(payingHardDeadlineMinutes);
     payment.setExpiredAt(hardDeadline);
     payment.setHardDeadlineAt(hardDeadline);
 
@@ -251,7 +260,7 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         } else {
             String from = payment.getStatus().name();
             payment.changeStatus(PaymentStatus.PAID);
-            recordEvent(payment, "PAYMENT_PAID", from, payment.getStatus().name(), null, orderId);
+            paymentEventRecorder.record(payment, "PAYMENT_PAID", from, payment.getStatus().name(), null, orderId);
             payment.setCompletedAt(now);
             confirmPayment(payment, now);
         }
@@ -277,7 +286,7 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
     if (payment.getStatus() == PaymentStatus.PAYING) {
         String from = payment.getStatus().name();
         payment.changeStatus(PaymentStatus.FAILED);
-        recordEvent(payment, "PAYMENT_FAILED", from, payment.getStatus().name(), failInfo, orderId);
+        paymentEventRecorder.record(payment, "PAYMENT_FAILED", from, payment.getStatus().name(), failInfo, orderId);
     }
 
     paymentRepository.save(payment);
@@ -332,7 +341,7 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
 
         String from = payment.getStatus().name();
         payment.changeStatus(PaymentStatus.PAID);
-        recordEvent(payment, "PAYMENT_PAID", from, payment.getStatus().name(), null, request.getOrderId());
+        paymentEventRecorder.record(payment, "PAYMENT_PAID", from, payment.getStatus().name(), null, request.getOrderId());
         confirmPayment(payment, now);
 
         return new PaymentConfirmResponse(
@@ -365,7 +374,7 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         }
 
         String currentStatus = payment.getStatus() == null ? null : payment.getStatus().name();
-        recordEvent(payment, webhookType, currentStatus, currentStatus, null, webhookEventId);
+        paymentEventRecorder.record(payment, webhookType, currentStatus, currentStatus, null, webhookEventId);
 
         // 이미 확정된 건 무시 (멱등성)
         if (payment.getStatus() == PaymentStatus.CONFIRMED) {
@@ -381,7 +390,7 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             if (payment.getStatus() == PaymentStatus.PAYING) {
                 String from = payment.getStatus().name();
                 payment.changeStatus(PaymentStatus.PAID);
-                recordEvent(payment, "PAYMENT_PAID", from, payment.getStatus().name(), null, request.getOrderId());
+                paymentEventRecorder.record(payment, "PAYMENT_PAID", from, payment.getStatus().name(), null, request.getOrderId());
                 payment.setCompletedAt(now);
             }
 
@@ -399,7 +408,7 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
                 finalizeTicketing(payment, action, now, request.getStatus());
                 String from = payment.getStatus().name();
                 payment.changeStatus(PaymentStatus.FAILED);
-                recordEvent(payment, "PAYMENT_FAILED", from, payment.getStatus().name(), null, request.getOrderId());
+                paymentEventRecorder.record(payment, "PAYMENT_FAILED", from, payment.getStatus().name(), null, request.getOrderId());
             } else {
                 return;
             }
@@ -423,7 +432,7 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         payment.changeStatus(PaymentStatus.CANCELED);
         payment.setUpdatedAt(now);
         payment.setPgStatus("USER_CANCELED");
-        recordEvent(payment, "PAYMENT_CANCELED_BY_USER", from, payment.getStatus().name(), null, payment.getPgOrderId());
+        paymentEventRecorder.record(payment, "PAYMENT_CANCELED_BY_USER", from, payment.getStatus().name(), null, payment.getPgOrderId());
 
         return new PaymentConfirmResponse(payment.getId(), payment.getBookingId(), payment.getStatus().name());
     }
@@ -433,11 +442,11 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         if (payment.getStatus() != PaymentStatus.EXPIRED) {
             String from = payment.getStatus().name();
             payment.changeStatus(PaymentStatus.EXPIRED);
-            recordEvent(payment, "PAYMENT_EXPIRED", from, payment.getStatus().name(), reasonPayload, orderId);
+            paymentEventRecorder.record(payment, "PAYMENT_EXPIRED", from, payment.getStatus().name(), reasonPayload, orderId);
         }
         String from = payment.getStatus().name();
         payment.changeStatus(PaymentStatus.REFUND_REQUIRED);
-        recordEvent(payment, "REFUND_REQUIRED_MARKED", from, payment.getStatus().name(), reasonPayload, orderId);
+        paymentEventRecorder.record(payment, "REFUND_REQUIRED_MARKED", from, payment.getStatus().name(), reasonPayload, orderId);
         payment.setUpdatedAt(now);
     }
 
@@ -462,7 +471,7 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
 
         String from = payment.getStatus().name();
         payment.changeStatus(PaymentStatus.CONFIRMED);
-        recordEvent(payment, "PAYMENT_CONFIRMED", from, payment.getStatus().name(), null, payment.getPgOrderId());
+        paymentEventRecorder.record(payment, "PAYMENT_CONFIRMED", from, payment.getStatus().name(), null, payment.getPgOrderId());
         payment.setUpdatedAt(now);
     }
 
@@ -490,9 +499,14 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         if (userId == null) {
             throw new AccessDeniedException("인증 사용자 정보가 없습니다.");
         }
-        List<Payment> payments = paymentRepository.findTop50ByBookingUserIdAndStatusOrderByUpdatedAtDesc(
-                userId,
-                PaymentStatus.REFUND_REQUIRED.name()
+        List<UUID> ownedBookingIds = getOwnedBookingIds(userId);
+        if (ownedBookingIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<Payment> payments = paymentRepository.findTop50ByBookingIdInAndStatusOrderByUpdatedAtDesc(
+                ownedBookingIds,
+                PaymentStatus.REFUND_REQUIRED
         );
         List<Map<String, Object>> rows = new ArrayList<>();
 
@@ -516,7 +530,24 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             throw new AccessDeniedException("인증 사용자 정보가 없습니다.");
         }
 
-        List<Payment> payments = paymentRepository.findTop100ByBookingUserIdOrderByUpdatedAtDesc(userId);
+        List<UUID> ownedBookingIds = getOwnedBookingIds(userId);
+        if (ownedBookingIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<Payment> payments = paymentRepository.findTop100ByBookingIdInOrderByUpdatedAtDesc(ownedBookingIds);
+        List<UUID> bookingIds = payments.stream()
+                .map(Payment::getBookingId)
+                .toList();
+        InternalBookingHistoryDetailsResponse historyDetailsResponse =
+                ticketingBookingQueryClient.getHistoryDetails(bookingIds);
+        Map<UUID, InternalBookingHistoryDetailResponse> historyDetailsByBookingId = new HashMap<>();
+        if (historyDetailsResponse != null && historyDetailsResponse.items() != null) {
+            for (InternalBookingHistoryDetailResponse detail : historyDetailsResponse.items()) {
+                historyDetailsByBookingId.put(detail.bookingId(), detail);
+            }
+        }
+
         List<Map<String, Object>> rows = new ArrayList<>();
 
         for (Payment payment : payments) {
@@ -533,53 +564,31 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             row.put("updatedAt", payment.getUpdatedAt());
             row.put("canRefund", payment.getStatus() == PaymentStatus.REFUND_REQUIRED);
 
-            Booking booking = bookingRepository.findById(payment.getBookingId()).orElse(null);
-            if (booking != null) {
-                row.put("bookingStatus", booking.getStatus());
-                row.put("bookingConfirmedAt", booking.getConfirmedAt());
-                row.put("bookingCanceledAt", booking.getCanceledAt());
-            } else {
-                row.put("bookingStatus", null);
-                row.put("bookingConfirmedAt", null);
-                row.put("bookingCanceledAt", null);
-            }
+            InternalBookingHistoryDetailResponse detail = historyDetailsByBookingId.get(payment.getBookingId());
+            row.put("bookingStatus", detail == null ? null : detail.bookingStatus());
+            row.put("bookingConfirmedAt", detail == null ? null : detail.bookingConfirmedAt());
+            row.put("bookingCanceledAt", detail == null ? null : detail.bookingCanceledAt());
+            row.put("concertName", detail == null ? null : detail.concertName());
+            row.put("concertVenue", detail == null ? null : detail.concertVenue());
+            row.put("showDateTime", detail == null ? null : detail.showDateTime());
 
-            BookingRepository.BookingConcertInfo concertInfo = bookingRepository.findBookingConcertInfo(payment.getBookingId())
-                    .orElse(null);
-            if (concertInfo != null) {
-                row.put("concertName", concertInfo.getConcertTitle());
-                row.put("concertVenue", concertInfo.getConcertVenue());
-                Instant showTime = concertInfo.getShowTime();
-                row.put(
-                        "showDateTime",
-                        showTime == null ? null : OffsetDateTime.ofInstant(showTime, ZoneOffset.UTC)
-                );
-            } else {
-                row.put("concertName", null);
-                row.put("concertVenue", null);
-                row.put("showDateTime", null);
-            }
-
-            List<Object[]> seatRows = bookingItemRepository.findBookedSeatDetails(payment.getBookingId());
             List<Map<String, Object>> seats = new ArrayList<>();
-            List<String> seatLabels = new ArrayList<>();
-            for (Object[] s : seatRows) {
-                String section = s[1] == null ? null : s[1].toString();
-                Integer rowNumber = toInteger(s[2]);
-                Integer seatNumber = toInteger(s[3]);
-                Map<String, Object> seat = new HashMap<>();
-                seat.put("seatId", toLong(s[0]));
-                seat.put("section", section);
-                seat.put("rowNumber", rowNumber);
-                seat.put("seatNumber", seatNumber);
-                seat.put("grade", s[4] == null ? null : s[4].toString());
-                seat.put("price", toBigDecimal(s[5]));
-                seats.add(seat);
-                if (section != null && rowNumber != null && seatNumber != null) {
-                    seatLabels.add(section + "-" + rowNumber + "-" + seatNumber);
+            List<String> seatLabels = detail == null || detail.seatLabels() == null
+                    ? new ArrayList<>()
+                    : new ArrayList<>(detail.seatLabels());
+            if (detail != null && detail.seats() != null) {
+                for (InternalBookedSeatDetailResponse seatDetail : detail.seats()) {
+                    Map<String, Object> seat = new HashMap<>();
+                    seat.put("seatId", seatDetail.seatId());
+                    seat.put("section", seatDetail.section());
+                    seat.put("rowNumber", seatDetail.rowNumber());
+                    seat.put("seatNumber", seatDetail.seatNumber());
+                    seat.put("grade", seatDetail.grade());
+                    seat.put("price", seatDetail.price());
+                    seats.add(seat);
                 }
             }
-            row.put("seatCount", seats.size());
+            row.put("seatCount", detail == null || detail.seatCount() == null ? seats.size() : detail.seatCount());
             row.put("seatLabels", seatLabels);
             row.put("seats", seats);
 
@@ -620,7 +629,7 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         refund.setRequestedAt(now);
         Refund saved = refundRepository.save(refund);
 
-        recordEvent(payment, "REFUND_REQUESTED", payment.getStatus().name(), payment.getStatus().name(), null, payment.getPgOrderId());
+        paymentEventRecorder.record(payment, "REFUND_REQUESTED", payment.getStatus().name(), payment.getStatus().name(), null, payment.getPgOrderId());
 
         Map<String, Object> response = new HashMap<>();
         response.put("refundId", saved.getId());
@@ -658,7 +667,7 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         String from = payment.getStatus().name();
         payment.changeStatus(target);
         payment.setUpdatedAt(now);
-        recordEvent(payment, "REFUND_COMPLETED", from, payment.getStatus().name(), null, payment.getPgOrderId());
+        paymentEventRecorder.record(payment, "REFUND_COMPLETED", from, payment.getStatus().name(), null, payment.getPgOrderId());
 
         Map<String, Object> response = new HashMap<>();
         response.put("paymentId", payment.getId());
@@ -692,63 +701,23 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         return result;
     }
 
-    private void recordEvent(
-            Payment payment,
-            String eventType,
-            String fromStatus,
-            String toStatus,
-            String payloadJson,
-            String pgEventId
-    ) {
-        PaymentEvent ev = new PaymentEvent();
-        ev.setPaymentId(payment.getId());
-        ev.setEventType(eventType);
-        ev.setFromStatus(fromStatus);
-        ev.setToStatus(toStatus);
-        ev.setIdempotencyKey(payment.getIdempotencyKey());
-        ev.setPgEventId(pgEventId);
-        ev.setPayloadJson(payloadJson);
-        ev.setCreatedAt(OffsetDateTime.now(ZoneOffset.UTC));
-        paymentEventRepository.save(ev);
-    }
-
     private void ensureOwner(Payment payment, Long userId) {
         if (userId == null) {
             throw new AccessDeniedException("본인 결제만 조회/처리할 수 있습니다.");
         }
-        Booking booking = bookingRepository.findById(payment.getBookingId())
-                .orElseThrow(() -> new EntityNotFoundException("Booking not found: " + payment.getBookingId()));
-        if (booking.getUserId() == null || !booking.getUserId().equals(userId)) {
+        InternalBookingPaymentContextResponse bookingContext =
+                ticketingBookingQueryClient.getPaymentContext(payment.getBookingId());
+        if (bookingContext.userId() == null || !bookingContext.userId().equals(userId)) {
             throw new AccessDeniedException("본인 결제만 조회/처리할 수 있습니다.");
         }
     }
 
-    private Long toLong(Object value) {
-        if (value == null) {
-            return null;
+    private List<UUID> getOwnedBookingIds(Long userId) {
+        InternalUserBookingIdsResponse response = ticketingBookingQueryClient.getUserBookingIds(userId);
+        if (response == null || response.bookingIds() == null) {
+            return List.of();
         }
-        return ((Number) value).longValue();
+        return response.bookingIds();
     }
-
-    private Integer toInteger(Object value) {
-        if (value == null) {
-            return null;
-        }
-        return ((Number) value).intValue();
-    }
-
-    private BigDecimal toBigDecimal(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof BigDecimal bd) {
-            return bd;
-        }
-        if (value instanceof Number n) {
-            return BigDecimal.valueOf(n.doubleValue());
-        }
-        return new BigDecimal(value.toString());
-    }
-
 
 }

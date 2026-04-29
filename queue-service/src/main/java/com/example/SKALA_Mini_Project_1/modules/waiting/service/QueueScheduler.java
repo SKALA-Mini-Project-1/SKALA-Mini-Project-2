@@ -15,7 +15,7 @@ public class QueueScheduler {
     private final RedisTemplate<String, String> redisTemplate;
     private final QueueService queueService;
 
-    @Scheduled(fixedDelay = 10000)
+    @Scheduled(fixedDelayString = "${queue.scheduler.cleanup.fixed-delay-ms:10000}")
     public void cleanupStaleQueueMembers() {
         Boolean locked = redisTemplate.opsForValue()
                 .setIfAbsent("queue:scheduler:cleanup:lock", "1", Duration.ofSeconds(5));

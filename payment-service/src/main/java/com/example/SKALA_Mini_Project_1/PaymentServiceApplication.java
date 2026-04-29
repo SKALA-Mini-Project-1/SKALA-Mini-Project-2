@@ -9,8 +9,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.example.SKALA_Mini_Project_1.common",
         "com.example.SKALA_Mini_Project_1.global",
         "com.example.SKALA_Mini_Project_1.config",
-        "com.example.SKALA_Mini_Project_1.modules.payments",
-        "com.example.SKALA_Mini_Project_1.modules.bookings"
+        "com.example.SKALA_Mini_Project_1.modules.payments"
 })
 public class PaymentServiceApplication {
 

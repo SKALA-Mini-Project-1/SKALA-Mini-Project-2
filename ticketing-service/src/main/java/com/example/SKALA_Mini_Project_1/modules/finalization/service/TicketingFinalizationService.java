@@ -10,6 +10,7 @@ import com.example.SKALA_Mini_Project_1.modules.finalization.dto.InternalBooking
 import com.example.SKALA_Mini_Project_1.modules.finalization.dto.InternalBookingConfirmRequest;
 import com.example.SKALA_Mini_Project_1.modules.finalization.dto.InternalBookingExpireRequest;
 import com.example.SKALA_Mini_Project_1.modules.finalization.dto.InternalBookingFinalizationResponse;
+import com.example.SKALA_Mini_Project_1.modules.reconciliation.service.ReconciliationTaskService;
 import com.example.SKALA_Mini_Project_1.modules.seats.repository.SeatRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +42,7 @@ public class TicketingFinalizationService {
     private final RedisLockRepository redisLockRepository;
     private final RedisTemplate<String, String> redisTemplate;
     private final FanScoreService fanScoreService;
+    private final ReconciliationTaskService reconciliationTaskService;
 
     @Transactional
     public InternalBookingFinalizationResponse confirmBooking(InternalBookingConfirmRequest request) {
@@ -255,7 +257,7 @@ public class TicketingFinalizationService {
             Long amount,
             OffsetDateTime processedAt
     ) {
-        return new InternalBookingFinalizationResponse(
+        InternalBookingFinalizationResponse response = new InternalBookingFinalizationResponse(
                 booking.getId(),
                 paymentId,
                 outcome,
@@ -271,6 +273,8 @@ public class TicketingFinalizationService {
                 amount,
                 processedAt
         );
+        reconciliationTaskService.recordFinalizationMismatchIfNeeded(response);
+        return response;
     }
 
     private void scheduleSeatCleanupAfterCommit(Long concertId, Long scheduleId, Long userId) {

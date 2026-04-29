@@ -7,6 +7,7 @@ import com.example.SKALA_Mini_Project_1.modules.payments.domain.PaymentEvent;
 
 public interface PaymentEventRepository extends JpaRepository<PaymentEvent, Long> {
     long countByEventType(String eventType);
+    boolean existsByEventId(java.util.UUID eventId);
     boolean existsByPaymentIdAndEventTypeAndPgEventId(java.util.UUID paymentId, String eventType, String pgEventId);
 
     @Query(
