@@ -10,14 +10,18 @@ import org.springframework.web.client.RestClientResponseException;
 @Component
 public class UserAuthClient {
 
+    private static final String INTERNAL_API_HEADER_NAME = "X-Internal-Api-Key";
+
     private final RestClient restClient;
 
     public UserAuthClient(
             RestClient.Builder restClientBuilder,
-            @Value("${user-auth-service.base-url}") String userAuthServiceBaseUrl
+            @Value("${user-auth-service.base-url}") String userAuthServiceBaseUrl,
+            @Value("${user-auth.internal-api.token}") String internalApiToken
     ) {
         this.restClient = restClientBuilder
                 .baseUrl(userAuthServiceBaseUrl)
+                .defaultHeader(INTERNAL_API_HEADER_NAME, internalApiToken)
                 .build();
     }
 

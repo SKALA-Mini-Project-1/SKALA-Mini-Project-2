@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.RequestBody;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -40,6 +41,11 @@ import com.example.SKALA_Mini_Project_1.modules.payments.service.PaymentService;
 public class PaymentController {
 
     private final PaymentService paymentService;
+    private final PaymentOpsApiGuard paymentOpsApiGuard;
+    @Value("${payment.redirect.success-url:http://localhost:5173/payments/success}")
+    private String paymentSuccessRedirectUrl;
+    @Value("${payment.redirect.fail-url:http://localhost:5173/payments/fail}")
+    private String paymentFailRedirectUrl;
 
 
     @PostMapping("/create")
@@ -128,7 +134,7 @@ public class PaymentController {
     paymentService.handleTossSuccess(paymentKey, orderId, amount);
 
         URI redirect = URI.create(
-            "http://localhost:5173/payments/success?paymentKey=" + paymentKey + "&orderId=" + orderId + "&amount=" + amount
+            paymentSuccessRedirectUrl + "?paymentKey=" + paymentKey + "&orderId=" + orderId + "&amount=" + amount
         );
 
     return ResponseEntity.status(HttpStatus.FOUND)
@@ -146,7 +152,7 @@ public class PaymentController {
     paymentService.handleTossFail(orderId, code, message);
 
         URI redirect = URI.create(
-            "http://localhost:5173/payments/fail?code=" + (code == null ? "PAYMENT_FAILED" : code)
+            paymentFailRedirectUrl + "?code=" + (code == null ? "PAYMENT_FAILED" : code)
                 + "&message=" + (message == null ? "" : message)
                 + "&orderId=" + orderId
         );
@@ -234,7 +240,10 @@ public class PaymentController {
 
     @GetMapping("/ops/summary")
     @Operation(summary = "운영 요약 조회", description = "결제 운영 지표 요약 정보를 조회합니다.")
-    public ResponseEntity<Map<String, Object>> opsSummary() {
+    public ResponseEntity<Map<String, Object>> opsSummary(
+            @org.springframework.web.bind.annotation.RequestHeader(PaymentOpsApiGuard.HEADER_NAME) String apiKey
+    ) {
+        paymentOpsApiGuard.validate(apiKey);
         return ResponseEntity.ok(paymentService.getOpsSummary());
     }
 

@@ -2,41 +2,26 @@
 
 package com.example.SKALA_Mini_Project_1.modules.payments.service;
 
-import java.util.Base64;
-import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
-
-import org.springframework.http.HttpEntity;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.springframework.web.client.RestClientResponseException;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.beans.factory.annotation.Value;
 
 import com.example.SKALA_Mini_Project_1.modules.bookings.domain.Booking;
-import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
-import com.example.SKALA_Mini_Project_1.modules.fanscore.FanScoreService;
+import com.example.SKALA_Mini_Project_1.modules.payments.client.InternalBookingFinalizationResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.client.TicketingFinalizationAction;
+import com.example.SKALA_Mini_Project_1.modules.payments.client.TicketingFinalizationClient;
 import com.example.SKALA_Mini_Project_1.modules.payments.client.TossConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingItemRepository;
 import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository;
-import com.example.SKALA_Mini_Project_1.modules.seats.repository.SeatRepository;
-import com.example.SKALA_Mini_Project_1.global.redis.RedisLockRepository;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateResponse;
@@ -50,11 +35,7 @@ import com.example.SKALA_Mini_Project_1.modules.payments.domain.Refund;
 import com.example.SKALA_Mini_Project_1.modules.payments.repository.PaymentEventRepository;
 import com.example.SKALA_Mini_Project_1.modules.payments.repository.PaymentRepository;
 import com.example.SKALA_Mini_Project_1.modules.payments.repository.RefundRepository;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.access.AccessDeniedException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 
@@ -62,25 +43,20 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class PaymentService {
-    private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
-
     private final PaymentRepository paymentRepository;
-    private final RestTemplate restTemplate; // ✅ Bean 주입
     private final com.example.SKALA_Mini_Project_1.modules.payments.client.TossPaymentsClient tossPaymentsClient;
     private final com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository bookingRepository;
     private final BookingItemRepository bookingItemRepository;
-    private final SeatRepository seatRepository;
     private final RefundRepository refundRepository;
     private final PaymentEventRepository paymentEventRepository;
-    private final RedisLockRepository redisLockRepository;
-    private final RedisTemplate<String, String> redisTemplate;
-    private final FanScoreService fanScoreService;
+    private final TicketingFinalizationClient ticketingFinalizationClient;
+    @Value("${payment.redirect.success-url:http://localhost:5173/payments/success}")
+    private String paymentSuccessRedirectUrl;
+    @Value("${payment.redirect.fail-url:http://localhost:5173/payments/fail}")
+    private String paymentFailRedirectUrl;
 
-    private static final Map<PaymentStatus, Set<PaymentStatus>> transitionMap = new EnumMap<>(PaymentStatus.class);
     private static final int CREATE_EXPIRE_MINUTES = 5;
     private static final int PAYING_HARD_DEADLINE_MINUTES = 10;
-    private static final String BOOKING_STATUS_CANCELED = "CANCELED";
-    private static final String BOOKING_STATUS_CONFIRMED = "CONFIRMED";
 
 
         /**
@@ -220,16 +196,10 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             orderId,
             "USER_" + userId,
             payment.getOrderName(),
-            "http://localhost:5173/payments/success",
-            "http://localhost:5173/payments/fail"
+            paymentSuccessRedirectUrl,
+            paymentFailRedirectUrl
     );
     }
-
-    @Value("${toss.secret-key}")
-    private String tossSecretKey;
-
-    @Value("${toss.api-base}")
-    private String tossApiBase;
 
     @Transactional
     public void handleTossSuccess(String paymentKey, String orderId, Long amount) {
@@ -249,22 +219,20 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         boolean isExpiredNow = (payment.getExpiredAt() != null && payment.getExpiredAt().isBefore(now))
                 || (payment.getHardDeadlineAt() != null && payment.getHardDeadlineAt().isBefore(now));
         boolean isExpiredStatus = payment.getStatus() == PaymentStatus.EXPIRED;
-        boolean invalidHold = !isHoldValidForPayment(payment.getBookingId());
-        boolean shouldMarkRefundRequired = isExpiredNow || isExpiredStatus || invalidHold;
+        boolean shouldMarkRefundRequired = isExpiredNow || isExpiredStatus;
 
         // 4) Toss Confirm API 호출
-        String confirmResponseBody;
-
         try {
-            confirmResponseBody = tossConfirm(paymentKey, orderId, amount);
-        } catch (RestClientResponseException e) {
+            TossConfirmResponse tossResponse = tossPaymentsClient.confirm(paymentKey, orderId, amount);
+            payment.setPgPaymentKey(tossResponse.getPaymentKey());
+            payment.setPgStatus(tossResponse.getStatus());
+        } catch (com.example.SKALA_Mini_Project_1.modules.payments.exception.TossPaymentsException e) {
             // ✅ 실패해도 PG 정보 저장해서 추적 가능하게
             payment.setPgPaymentKey(paymentKey);
-            payment.setPgStatus(e.getResponseBodyAsString());
+            payment.setPgStatus(e.getMessage());
             payment.setUpdatedAt(now);
             paymentRepository.save(payment);
-
-            throw new IllegalStateException("Toss confirm failed: " + e.getRawStatusCode());
+            throw new IllegalStateException("Toss confirm failed", e);
         } catch (Exception e) {
             payment.setPgPaymentKey(paymentKey);
             payment.setPgStatus("CONFIRM_EXCEPTION: " + e.getClass().getSimpleName());
@@ -275,13 +243,11 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         }
 
         // 5) 승인 성공: pg 식별자/응답 저장
-        payment.setPgPaymentKey(paymentKey);
-        payment.setPgStatus(confirmResponseBody);
         payment.setUpdatedAt(now);
 
         // 6) 정책 A + 상태 전이
         if (shouldMarkRefundRequired) {
-            markRefundRequired(payment, now, orderId, invalidHold ? "INVALID_HOLD" : null);
+            markRefundRequired(payment, now, orderId, isExpiredStatus ? "ALREADY_EXPIRED" : "EXPIRED_BEFORE_CONFIRM");
         } else {
             String from = payment.getStatus().name();
             payment.changeStatus(PaymentStatus.PAID);
@@ -291,41 +257,6 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         }
 
         paymentRepository.save(payment);
-    }
-
-    // ----------------------------------------------------------------------
-    // Toss Confirm Call
-    // ----------------------------------------------------------------------
-    private String tossConfirm(String paymentKey, String orderId, Long amount) {
-
-        String basicToken = Base64.getEncoder().encodeToString(
-                (tossSecretKey + ":").getBytes(StandardCharsets.UTF_8)
-        );
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("Authorization", "Basic " + basicToken);
-
-        Map<String, Object> body = Map.of(
-                "paymentKey", paymentKey,
-                "orderId", orderId,
-                "amount", amount
-        );
-
-        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
-
-        ResponseEntity<String> resp = restTemplate.exchange(
-                tossApiBase + "/v1/payments/confirm",
-                HttpMethod.POST,
-                request,
-                String.class
-        );
-
-        if (!resp.getStatusCode().is2xxSuccessful() || resp.getBody() == null) {
-            throw new IllegalStateException("Toss confirm unexpected response");
-        }
-
-        return resp.getBody();
     }
 
     @Transactional
@@ -399,15 +330,6 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         payment.setCompletedAt(now);
         payment.setUpdatedAt(now);
 
-        if (!isHoldValidForPayment(payment.getBookingId())) {
-            markRefundRequired(payment, now, request.getOrderId(), "INVALID_HOLD");
-            return new PaymentConfirmResponse(
-                    payment.getId(),
-                    payment.getBookingId(),
-                    payment.getStatus().name()
-            );
-        }
-
         String from = payment.getStatus().name();
         payment.changeStatus(PaymentStatus.PAID);
         recordEvent(payment, "PAYMENT_PAID", from, payment.getStatus().name(), null, request.getOrderId());
@@ -457,10 +379,6 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             }
 
             if (payment.getStatus() == PaymentStatus.PAYING) {
-                if (!isHoldValidForPayment(payment.getBookingId())) {
-                    markRefundRequired(payment, now, request.getOrderId(), "INVALID_HOLD");
-                    return;
-                }
                 String from = payment.getStatus().name();
                 payment.changeStatus(PaymentStatus.PAID);
                 recordEvent(payment, "PAYMENT_PAID", from, payment.getStatus().name(), null, request.getOrderId());
@@ -475,13 +393,16 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
                 || "FAILED".equalsIgnoreCase(request.getStatus())) {
             if (payment.getStatus() == PaymentStatus.PAYING
                     || payment.getStatus() == PaymentStatus.PENDING) {
+                TicketingFinalizationAction action = "CANCELED".equalsIgnoreCase(request.getStatus())
+                        ? TicketingFinalizationAction.CANCEL
+                        : TicketingFinalizationAction.FAIL;
+                finalizeTicketing(payment, action, now, request.getStatus());
                 String from = payment.getStatus().name();
                 payment.changeStatus(PaymentStatus.FAILED);
                 recordEvent(payment, "PAYMENT_FAILED", from, payment.getStatus().name(), null, request.getOrderId());
             } else {
                 return;
             }
-            cancelBookingAndReleaseResources(payment.getBookingId(), now, BOOKING_STATUS_CANCELED);
         }
     }
 
@@ -497,38 +418,14 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         }
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        finalizeTicketing(payment, TicketingFinalizationAction.CANCEL, now, "USER_CANCELED");
         String from = payment.getStatus().name();
         payment.changeStatus(PaymentStatus.CANCELED);
         payment.setUpdatedAt(now);
         payment.setPgStatus("USER_CANCELED");
         recordEvent(payment, "PAYMENT_CANCELED_BY_USER", from, payment.getStatus().name(), null, payment.getPgOrderId());
 
-        cancelBookingAndReleaseResources(payment.getBookingId(), now, BOOKING_STATUS_CANCELED);
-
         return new PaymentConfirmResponse(payment.getId(), payment.getBookingId(), payment.getStatus().name());
-    }
-
-    private void cancelBookingAndReleaseResources(UUID bookingId, OffsetDateTime now, String bookingStatus) {
-        Booking booking = bookingRepository.findById(bookingId)
-                .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
-
-        booking.setStatus(bookingStatus);
-        booking.setCanceledAt(now);
-
-        seatRepository.releaseSeatHoldsByBookingId(bookingId);
-
-        Long scheduleId = booking.getScheduleId();
-        Long userId = booking.getUserId();
-        if (scheduleId == null || userId == null) {
-            return;
-        }
-
-        Long concertId = bookingRepository.findConcertIdByBookingId(bookingId).orElse(null);
-        if (concertId == null) {
-            return;
-        }
-
-        scheduleSeatCleanupAfterCommit(concertId, scheduleId, userId);
     }
 
     private void markRefundRequired(Payment payment, OffsetDateTime now, String orderId, String reason) {
@@ -544,45 +441,6 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         payment.setUpdatedAt(now);
     }
 
-    private boolean isHoldValidForPayment(UUID bookingId) {
-        Booking booking = bookingRepository.findById(bookingId).orElse(null);
-        if (booking == null) {
-            return false;
-        }
-        if (BOOKING_STATUS_CANCELED.equalsIgnoreCase(booking.getStatus())) {
-            return false;
-        }
-
-        Long scheduleId = booking.getScheduleId();
-        Long userId = booking.getUserId();
-        if (scheduleId == null || userId == null) {
-            return false;
-        }
-
-        Long concertId = bookingRepository.findConcertIdByBookingId(bookingId).orElse(null);
-        if (concertId == null) {
-            return false;
-        }
-
-        List<Long> seatIds = bookingItemRepository.findSeatIdsByBookingId(bookingId);
-        if (seatIds == null || seatIds.isEmpty()) {
-            return false;
-        }
-
-        String expectedOwner = String.valueOf(userId);
-        for (Long seatId : seatIds) {
-            if (seatId == null) {
-                return false;
-            }
-            String owner = redisLockRepository.getSeatOwner(concertId, scheduleId, seatId);
-            Long ttl = redisLockRepository.getSeatLockTtlSeconds(concertId, scheduleId, seatId);
-            if (!expectedOwner.equals(owner) || ttl == null || ttl <= 0) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     private void confirmPayment(Payment payment, OffsetDateTime now) {
         if (payment.getStatus() == PaymentStatus.CONFIRMED) {
             return;
@@ -591,77 +449,40 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             throw new IllegalStateException("Payment must be PAID before confirm: " + payment.getStatus());
         }
 
+        InternalBookingFinalizationResponse response =
+                finalizeTicketing(payment, TicketingFinalizationAction.CONFIRM, now, null);
+
+        if (requiresRefund(response.outcome())) {
+            markRefundRequired(payment, now, payment.getPgOrderId(), response.outcome());
+            return;
+        }
+        if (!isConfirmSuccessful(response.outcome())) {
+            throw new IllegalStateException("Unexpected ticketing confirm outcome: " + response.outcome());
+        }
+
         String from = payment.getStatus().name();
         payment.changeStatus(PaymentStatus.CONFIRMED);
         recordEvent(payment, "PAYMENT_CONFIRMED", from, payment.getStatus().name(), null, payment.getPgOrderId());
         payment.setUpdatedAt(now);
-        seatRepository.reserveSeatsByBookingId(payment.getBookingId());
-
-        Booking booking = bookingRepository.findById(payment.getBookingId())
-                .orElseThrow(() -> new IllegalArgumentException("Booking not found"));
-        if (!BOOKING_STATUS_CONFIRMED.equalsIgnoreCase(booking.getStatus())) {
-            booking.setStatus(BOOKING_STATUS_CONFIRMED);
-            booking.setConfirmedAt(now);
-        }
-
-        Long scheduleId = booking.getScheduleId();
-        Long userId = booking.getUserId();
-        if (scheduleId != null && userId != null) {
-            Long concertId = bookingRepository.findConcertIdByBookingId(payment.getBookingId())
-                    .orElseThrow(() -> new IllegalStateException("Concert not found for booking: " + payment.getBookingId()));
-
-            fanScoreService.applyConfirmedBookingScore(payment.getBookingId(), userId);
-
-            // 결제 확정 핵심(DB)과 Redis 정리(후처리)를 분리해 Redis 장애가 결제 확정을 깨지 않도록 한다.
-            scheduleSeatCleanupAfterCommit(concertId, scheduleId, userId);
-        }
     }
 
-    private void scheduleSeatCleanupAfterCommit(Long concertId, Long scheduleId, Long userId) {
-        Runnable cleanupTask = () -> cleanupSeatResources(concertId, scheduleId, userId);
-
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            cleanupTask.run();
-            return;
-        }
-
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                cleanupTask.run();
-            }
-        });
+    private InternalBookingFinalizationResponse finalizeTicketing(
+            Payment payment,
+            TicketingFinalizationAction action,
+            OffsetDateTime occurredAt,
+            String reasonCode
+    ) {
+        return ticketingFinalizationClient.finalizeBooking(payment, action, occurredAt, reasonCode);
     }
 
-    private void cleanupSeatResources(Long concertId, Long scheduleId, Long userId) {
-        try {
-            String userIdRaw = String.valueOf(userId);
-            redisLockRepository.releaseUserHeldSeats(concertId, scheduleId, userIdRaw);
+    private boolean isConfirmSuccessful(String outcome) {
+        return "CONFIRMED".equalsIgnoreCase(outcome)
+                || "ALREADY_CONFIRMED".equalsIgnoreCase(outcome);
+    }
 
-            String accessKey = RedisKeyGenerator.seatAccessKey(userId, concertId, scheduleId);
-            String accessByScheduleKey = RedisKeyGenerator.seatAccessByScheduleKey(userId, scheduleId);
-            boolean hadAccess = Boolean.TRUE.equals(redisTemplate.hasKey(accessKey))
-                    || Boolean.TRUE.equals(redisTemplate.hasKey(accessByScheduleKey));
-
-            redisTemplate.delete(accessKey);
-            redisTemplate.delete(accessByScheduleKey);
-            redisTemplate.opsForSet().remove(
-                    RedisKeyGenerator.seatAccessIndexKey(concertId, scheduleId),
-                    userIdRaw
-            );
-
-            if (hadAccess) {
-                redisLockRepository.decrementSeatActiveFloorZero(concertId, scheduleId);
-            }
-        } catch (RuntimeException e) {
-            log.warn(
-                    "Deferred seat cleanup failed. concertId={}, scheduleId={}, userId={}, reason={}",
-                    concertId,
-                    scheduleId,
-                    userId,
-                    e.getMessage()
-            );
-        }
+    private boolean requiresRefund(String outcome) {
+        return "INVALID_HOLD".equalsIgnoreCase(outcome)
+                || "BOOKING_ALREADY_CANCELED".equalsIgnoreCase(outcome);
     }
 
     @Transactional(readOnly = true)
