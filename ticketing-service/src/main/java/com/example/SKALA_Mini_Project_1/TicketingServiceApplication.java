@@ -12,6 +12,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.example.SKALA_Mini_Project_1.modules.bookings",
         "com.example.SKALA_Mini_Project_1.modules.seats",
         "com.example.SKALA_Mini_Project_1.modules.fanscore",
+        "com.example.SKALA_Mini_Project_1.modules.events",
         "com.example.SKALA_Mini_Project_1.modules.finalization",
         "com.example.SKALA_Mini_Project_1.modules.reconciliation"
 })

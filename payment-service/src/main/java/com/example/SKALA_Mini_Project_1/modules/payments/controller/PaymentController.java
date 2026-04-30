@@ -2,7 +2,6 @@ package com.example.SKALA_Mini_Project_1.modules.payments.controller;
 
 import java.net.URI;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,9 +26,13 @@ import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentC
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentGetResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentHistoryItemResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentRefundRequiredItemResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.RefundCompleteRequest;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.RefundCompletionResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentSubmitResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.RefundRequest;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.RefundStatusResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.TossWebhookRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.service.PaymentService;
 
@@ -41,7 +44,6 @@ import com.example.SKALA_Mini_Project_1.modules.payments.service.PaymentService;
 public class PaymentController {
 
     private final PaymentService paymentService;
-    private final PaymentOpsApiGuard paymentOpsApiGuard;
     @Value("${payment.redirect.success-url:http://localhost:5173/payments/success}")
     private String paymentSuccessRedirectUrl;
     @Value("${payment.redirect.fail-url:http://localhost:5173/payments/fail}")
@@ -179,7 +181,7 @@ public class PaymentController {
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "401", description = "인증 필요")
     })
-    public ResponseEntity<List<Map<String, Object>>> refundRequired() {
+    public ResponseEntity<List<PaymentRefundRequiredItemResponse>> refundRequired() {
         Long userId = (Long) SecurityContextHolder.getContext()
                 .getAuthentication()
                 .getPrincipal();
@@ -192,7 +194,7 @@ public class PaymentController {
             @ApiResponse(responseCode = "200", description = "조회 성공"),
             @ApiResponse(responseCode = "401", description = "인증 필요")
     })
-    public ResponseEntity<List<Map<String, Object>>> history() {
+    public ResponseEntity<List<PaymentHistoryItemResponse>> history() {
         Long userId = (Long) SecurityContextHolder.getContext()
                 .getAuthentication()
                 .getPrincipal();
@@ -207,7 +209,7 @@ public class PaymentController {
             @ApiResponse(responseCode = "403", description = "본인 결제가 아님"),
             @ApiResponse(responseCode = "409", description = "환불 요청 불가 상태")
     })
-    public ResponseEntity<Map<String, Object>> requestRefund(
+    public ResponseEntity<RefundStatusResponse> requestRefund(
             @PathVariable UUID paymentId,
             @RequestBody(required = false) RefundRequest request
     ) {
@@ -226,7 +228,7 @@ public class PaymentController {
             @ApiResponse(responseCode = "403", description = "본인 결제가 아님"),
             @ApiResponse(responseCode = "409", description = "환불 완료 처리 불가 상태")
     })
-    public ResponseEntity<Map<String, Object>> completeRefund(
+    public ResponseEntity<RefundCompletionResponse> completeRefund(
             @PathVariable UUID paymentId,
             @RequestBody(required = false) RefundCompleteRequest request
     ) {
@@ -237,15 +239,5 @@ public class PaymentController {
         String pgRefundId = request == null ? null : request.getPgRefundId();
         return ResponseEntity.ok(paymentService.completeRefund(paymentId, userId, paymentStatus, pgRefundId));
     }
-
-    @GetMapping("/ops/summary")
-    @Operation(summary = "운영 요약 조회", description = "결제 운영 지표 요약 정보를 조회합니다.")
-    public ResponseEntity<Map<String, Object>> opsSummary(
-            @org.springframework.web.bind.annotation.RequestHeader(PaymentOpsApiGuard.HEADER_NAME) String apiKey
-    ) {
-        paymentOpsApiGuard.validate(apiKey);
-        return ResponseEntity.ok(paymentService.getOpsSummary());
-    }
-
 
 }

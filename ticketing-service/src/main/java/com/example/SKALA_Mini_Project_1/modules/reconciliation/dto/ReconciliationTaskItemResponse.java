@@ -19,6 +19,9 @@ public record ReconciliationTaskItemResponse(
         String pgPaymentKey,
         Long amount,
         OffsetDateTime requestedAt,
+        OffsetDateTime lastProcessedAt,
+        OffsetDateTime nextRetryAt,
+        OffsetDateTime completedAt,
         Integer retryCount,
         String lastError
 ) {

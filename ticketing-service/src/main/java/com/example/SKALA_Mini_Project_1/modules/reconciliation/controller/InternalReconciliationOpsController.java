@@ -42,8 +42,34 @@ public class InternalReconciliationOpsController {
         return ResponseEntity.ok(reconciliationTaskService.getRecentTasks());
     }
 
+    @GetMapping("/{taskId}")
+    public ResponseEntity<ReconciliationTaskItemResponse> getTask(
+            @RequestHeader(InternalApiGuard.HEADER_NAME) String apiKey,
+            @PathVariable UUID taskId
+    ) {
+        internalApiGuard.validate(apiKey);
+        return ResponseEntity.ok(reconciliationTaskService.getTask(taskId));
+    }
+
+    @GetMapping("/failed-tasks")
+    public ResponseEntity<List<ReconciliationTaskItemResponse>> getFailedTasks(
+            @RequestHeader(InternalApiGuard.HEADER_NAME) String apiKey
+    ) {
+        internalApiGuard.validate(apiKey);
+        return ResponseEntity.ok(reconciliationTaskService.getFailedTasks());
+    }
+
     @PostMapping("/{taskId}/retry")
     public ResponseEntity<ReconciliationTaskItemResponse> retryTask(
+            @RequestHeader(InternalApiGuard.HEADER_NAME) String apiKey,
+            @PathVariable UUID taskId
+    ) {
+        internalApiGuard.validate(apiKey);
+        return ResponseEntity.ok(reconciliationTaskService.retryTask(taskId));
+    }
+
+    @PostMapping("/failed-tasks/{taskId}/replay")
+    public ResponseEntity<ReconciliationTaskItemResponse> replayFailedTask(
             @RequestHeader(InternalApiGuard.HEADER_NAME) String apiKey,
             @PathVariable UUID taskId
     ) {

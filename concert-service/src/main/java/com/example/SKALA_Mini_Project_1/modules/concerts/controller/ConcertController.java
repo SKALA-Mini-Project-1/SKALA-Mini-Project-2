@@ -9,8 +9,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.persistence.EntityNotFoundException;
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/concerts")
@@ -25,10 +25,10 @@ public class ConcertController {
     }
 
     @GetMapping("/{concertId}")
-    public ResponseEntity<?> getConcert(@PathVariable Long concertId) {
+    public ResponseEntity<ConcertResponse> getConcert(@PathVariable Long concertId) {
         ConcertResponse concert = concertQueryService.getVisibleConcertById(concertId);
         if (concert == null) {
-            return ResponseEntity.status(404).body(Map.of("message", "콘서트를 찾을 수 없습니다."));
+            throw new EntityNotFoundException("콘서트를 찾을 수 없습니다.");
         }
         return ResponseEntity.ok(concert);
     }

@@ -2,6 +2,7 @@ package com.example.SKALA_Mini_Project_1.modules.bookings.controller;
 
 import com.example.SKALA_Mini_Project_1.modules.bookings.dto.CreateBookingRequest;
 import com.example.SKALA_Mini_Project_1.modules.bookings.dto.CreateBookingResponse;
+import com.example.SKALA_Mini_Project_1.modules.bookings.dto.BookingDetailResponse;
 import com.example.SKALA_Mini_Project_1.modules.bookings.service.BookingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -10,12 +11,9 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -24,7 +22,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -61,25 +58,12 @@ public class BookingController {
             @ApiResponse(responseCode = "401", description = "인증 필요"),
             @ApiResponse(responseCode = "409", description = "좌석 상태/선점 충돌")
     })
-    public ResponseEntity<?> createBooking(@RequestBody @Valid CreateBookingRequest request) {
+    public ResponseEntity<CreateBookingResponse> createBooking(@RequestBody @Valid CreateBookingRequest request) {
         Long userId = (Long) SecurityContextHolder.getContext()
                 .getAuthentication()
                 .getPrincipal();
-
-        try {
-            CreateBookingResponse response = bookingService.createBooking(userId, request);
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "status", "bad_request",
-                    "message", e.getMessage()
-            ));
-        } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
-                    "status", "conflict",
-                    "message", e.getMessage()
-            ));
-        }
+        CreateBookingResponse response = bookingService.createBooking(userId, request);
+        return ResponseEntity.status(201).body(response);
     }
 
     @GetMapping("/{bookingId}")
@@ -93,24 +77,10 @@ public class BookingController {
             @ApiResponse(responseCode = "403", description = "본인 예약이 아님"),
             @ApiResponse(responseCode = "404", description = "예약 정보 없음")
     })
-    public ResponseEntity<?> getBooking(@PathVariable UUID bookingId) {
+    public ResponseEntity<BookingDetailResponse> getBooking(@PathVariable UUID bookingId) {
         Long userId = (Long) SecurityContextHolder.getContext()
                 .getAuthentication()
                 .getPrincipal();
-
-        try {
-            Map<String, Object> response = bookingService.getBookingDetail(userId, bookingId);
-            return ResponseEntity.ok(response);
-        } catch (EntityNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
-                    "status", "not_found",
-                    "message", e.getMessage()
-            ));
-        } catch (AccessDeniedException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "status", "forbidden",
-                    "message", e.getMessage()
-            ));
-        }
+        return ResponseEntity.ok(bookingService.getBookingDetail(userId, bookingId));
     }
 }

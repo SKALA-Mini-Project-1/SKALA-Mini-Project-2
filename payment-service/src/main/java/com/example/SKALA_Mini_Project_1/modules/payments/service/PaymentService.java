@@ -14,21 +14,30 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.factory.annotation.Value;
 
-import com.example.SKALA_Mini_Project_1.modules.payments.client.InternalBookedSeatDetailResponse;
-import com.example.SKALA_Mini_Project_1.modules.payments.client.InternalBookingHistoryDetailResponse;
-import com.example.SKALA_Mini_Project_1.modules.payments.client.InternalBookingHistoryDetailsResponse;
-import com.example.SKALA_Mini_Project_1.modules.payments.client.InternalBookingPaymentContextResponse;
-import com.example.SKALA_Mini_Project_1.modules.payments.client.InternalBookingFinalizationResponse;
-import com.example.SKALA_Mini_Project_1.modules.payments.client.InternalUserBookingIdsResponse;
-import com.example.SKALA_Mini_Project_1.modules.payments.client.TicketingBookingQueryClient;
-import com.example.SKALA_Mini_Project_1.modules.payments.client.TicketingFinalizationAction;
-import com.example.SKALA_Mini_Project_1.modules.payments.client.TicketingFinalizationClient;
-import com.example.SKALA_Mini_Project_1.modules.payments.client.TossConfirmResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.InternalBookedSeatDetailResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.InternalBookingFinalizationResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.InternalBookingHistoryDetailResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.InternalBookingHistoryDetailsResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.InternalBookingPaymentContextResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.InternalUserBookingIdsResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.TicketingBookingQueryClient;
+import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.TicketingFinalizationAction;
+import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.TicketingFinalizationClient;
+import com.example.SKALA_Mini_Project_1.modules.payments.integration.toss.TossConfirmResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.integration.toss.TossPaymentsClient;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentGetResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentHistoryItemResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentHistorySeatResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentOpsSummaryResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentRefundRequiredItemResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentSchedulerHealthResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentSubmitResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentWebhookEventResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.RefundCompletionResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.RefundStatusResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.TossWebhookRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.Payment;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.PaymentStatus;
@@ -45,7 +54,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class PaymentService {
     private final PaymentRepository paymentRepository;
-    private final com.example.SKALA_Mini_Project_1.modules.payments.client.TossPaymentsClient tossPaymentsClient;
+    private final TossPaymentsClient tossPaymentsClient;
     private final RefundRepository refundRepository;
     private final PaymentEventRepository paymentEventRepository;
     private final PaymentEventRecorder paymentEventRecorder;
@@ -59,6 +68,8 @@ public class PaymentService {
     private long createExpireMinutes;
     @Value("${payment.expiration.paying-hard-deadline-minutes:10}")
     private long payingHardDeadlineMinutes;
+    @Value("${payment.scheduler.expire.fixed-delay-ms:15000}")
+    private long paymentExpireSchedulerDelayMs;
 
 
         /**
@@ -495,44 +506,40 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> getRefundRequiredPayments(Long userId) {
+    public List<PaymentRefundRequiredItemResponse> getRefundRequiredPayments(Long userId) {
         if (userId == null) {
             throw new AccessDeniedException("인증 사용자 정보가 없습니다.");
         }
         List<UUID> ownedBookingIds = getOwnedBookingIds(userId);
         if (ownedBookingIds.isEmpty()) {
-            return new ArrayList<>();
+            return List.of();
         }
 
         List<Payment> payments = paymentRepository.findTop50ByBookingIdInAndStatusOrderByUpdatedAtDesc(
                 ownedBookingIds,
                 PaymentStatus.REFUND_REQUIRED
         );
-        List<Map<String, Object>> rows = new ArrayList<>();
-
-        for (Payment p : payments) {
-            Map<String, Object> row = new HashMap<>();
-            row.put("paymentId", p.getId());
-            row.put("bookingId", p.getBookingId());
-            row.put("amount", p.getAmount());
-            row.put("status", p.getStatus().name());
-            row.put("pgOrderId", p.getPgOrderId());
-            row.put("updatedAt", p.getUpdatedAt());
-            rows.add(row);
-        }
-
-        return rows;
+        return payments.stream()
+                .map(p -> new PaymentRefundRequiredItemResponse(
+                        p.getId(),
+                        p.getBookingId(),
+                        p.getAmount(),
+                        p.getStatus().name(),
+                        p.getPgOrderId(),
+                        p.getUpdatedAt()
+                ))
+                .toList();
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> getMyPaymentHistory(Long userId) {
+    public List<PaymentHistoryItemResponse> getMyPaymentHistory(Long userId) {
         if (userId == null) {
             throw new AccessDeniedException("인증 사용자 정보가 없습니다.");
         }
 
         List<UUID> ownedBookingIds = getOwnedBookingIds(userId);
         if (ownedBookingIds.isEmpty()) {
-            return new ArrayList<>();
+            return List.of();
         }
 
         List<Payment> payments = paymentRepository.findTop100ByBookingIdInOrderByUpdatedAtDesc(ownedBookingIds);
@@ -548,58 +555,55 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             }
         }
 
-        List<Map<String, Object>> rows = new ArrayList<>();
+        List<PaymentHistoryItemResponse> rows = new ArrayList<>();
 
         for (Payment payment : payments) {
-            Map<String, Object> row = new HashMap<>();
-            row.put("paymentId", payment.getId());
-            row.put("bookingId", payment.getBookingId());
-            row.put("paymentStatus", payment.getStatus().name());
-            row.put("amount", payment.getAmount());
-            row.put("orderName", payment.getOrderName());
-            row.put("pgOrderId", payment.getPgOrderId());
-            row.put("createdAt", payment.getCreatedAt());
-            row.put("submittedAt", payment.getSubmittedAt());
-            row.put("paidAt", payment.getCompletedAt());
-            row.put("updatedAt", payment.getUpdatedAt());
-            row.put("canRefund", payment.getStatus() == PaymentStatus.REFUND_REQUIRED);
-
             InternalBookingHistoryDetailResponse detail = historyDetailsByBookingId.get(payment.getBookingId());
-            row.put("bookingStatus", detail == null ? null : detail.bookingStatus());
-            row.put("bookingConfirmedAt", detail == null ? null : detail.bookingConfirmedAt());
-            row.put("bookingCanceledAt", detail == null ? null : detail.bookingCanceledAt());
-            row.put("concertName", detail == null ? null : detail.concertName());
-            row.put("concertVenue", detail == null ? null : detail.concertVenue());
-            row.put("showDateTime", detail == null ? null : detail.showDateTime());
-
-            List<Map<String, Object>> seats = new ArrayList<>();
+            List<PaymentHistorySeatResponse> seats = new ArrayList<>();
             List<String> seatLabels = detail == null || detail.seatLabels() == null
                     ? new ArrayList<>()
                     : new ArrayList<>(detail.seatLabels());
             if (detail != null && detail.seats() != null) {
                 for (InternalBookedSeatDetailResponse seatDetail : detail.seats()) {
-                    Map<String, Object> seat = new HashMap<>();
-                    seat.put("seatId", seatDetail.seatId());
-                    seat.put("section", seatDetail.section());
-                    seat.put("rowNumber", seatDetail.rowNumber());
-                    seat.put("seatNumber", seatDetail.seatNumber());
-                    seat.put("grade", seatDetail.grade());
-                    seat.put("price", seatDetail.price());
-                    seats.add(seat);
+                    seats.add(new PaymentHistorySeatResponse(
+                            seatDetail.seatId(),
+                            seatDetail.section(),
+                            seatDetail.rowNumber(),
+                            seatDetail.seatNumber(),
+                            seatDetail.grade(),
+                            seatDetail.price()
+                    ));
                 }
             }
-            row.put("seatCount", detail == null || detail.seatCount() == null ? seats.size() : detail.seatCount());
-            row.put("seatLabels", seatLabels);
-            row.put("seats", seats);
-
-            rows.add(row);
+            rows.add(new PaymentHistoryItemResponse(
+                    payment.getId(),
+                    payment.getBookingId(),
+                    payment.getStatus().name(),
+                    payment.getAmount(),
+                    payment.getOrderName(),
+                    payment.getPgOrderId(),
+                    payment.getCreatedAt(),
+                    payment.getSubmittedAt(),
+                    payment.getCompletedAt(),
+                    payment.getUpdatedAt(),
+                    payment.getStatus() == PaymentStatus.REFUND_REQUIRED,
+                    detail == null ? null : detail.bookingStatus(),
+                    detail == null ? null : detail.bookingConfirmedAt(),
+                    detail == null ? null : detail.bookingCanceledAt(),
+                    detail == null ? null : detail.concertName(),
+                    detail == null ? null : detail.concertVenue(),
+                    detail == null ? null : detail.showDateTime(),
+                    detail == null || detail.seatCount() == null ? seats.size() : detail.seatCount(),
+                    seatLabels,
+                    seats
+            ));
         }
 
         return rows;
     }
 
     @Transactional
-    public Map<String, Object> requestRefund(UUID paymentId, Long userId, String reasonCode) {
+    public RefundStatusResponse requestRefund(UUID paymentId, Long userId, String reasonCode) {
         Payment payment = paymentRepository.findByIdForUpdate(paymentId)
                 .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
         ensureOwner(payment, userId);
@@ -611,13 +615,16 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         Refund existing = refundRepository.findTopByPaymentIdOrderByRequestedAtDesc(paymentId).orElse(null);
         if (existing != null && ("REQUESTED".equalsIgnoreCase(existing.getStatus())
                 || "COMPLETED".equalsIgnoreCase(existing.getStatus()))) {
-            Map<String, Object> already = new HashMap<>();
-            already.put("refundId", existing.getId());
-            already.put("paymentId", existing.getPaymentId());
-            already.put("status", existing.getStatus());
-            already.put("amount", existing.getAmount());
-            already.put("requestedAt", existing.getRequestedAt());
-            return already;
+            return new RefundStatusResponse(
+                    existing.getId(),
+                    existing.getPaymentId(),
+                    existing.getStatus(),
+                    existing.getReasonCode(),
+                    existing.getAmount(),
+                    existing.getRequestedAt(),
+                    existing.getCompletedAt(),
+                    existing.getPgRefundId()
+            );
         }
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -631,18 +638,20 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
 
         paymentEventRecorder.record(payment, "REFUND_REQUESTED", payment.getStatus().name(), payment.getStatus().name(), null, payment.getPgOrderId());
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("refundId", saved.getId());
-        response.put("paymentId", saved.getPaymentId());
-        response.put("status", saved.getStatus());
-        response.put("reasonCode", saved.getReasonCode());
-        response.put("amount", saved.getAmount());
-        response.put("requestedAt", saved.getRequestedAt());
-        return response;
+        return new RefundStatusResponse(
+                saved.getId(),
+                saved.getPaymentId(),
+                saved.getStatus(),
+                saved.getReasonCode(),
+                saved.getAmount(),
+                saved.getRequestedAt(),
+                saved.getCompletedAt(),
+                saved.getPgRefundId()
+        );
     }
 
     @Transactional
-    public Map<String, Object> completeRefund(UUID paymentId, Long userId, String paymentStatus, String pgRefundId) {
+    public RefundCompletionResponse completeRefund(UUID paymentId, Long userId, String paymentStatus, String pgRefundId) {
         Payment payment = paymentRepository.findByIdForUpdate(paymentId)
                 .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
         ensureOwner(payment, userId);
@@ -669,18 +678,18 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         payment.setUpdatedAt(now);
         paymentEventRecorder.record(payment, "REFUND_COMPLETED", from, payment.getStatus().name(), null, payment.getPgOrderId());
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("paymentId", payment.getId());
-        response.put("paymentStatus", payment.getStatus().name());
-        response.put("refundId", refund.getId());
-        response.put("refundStatus", refund.getStatus());
-        response.put("completedAt", refund.getCompletedAt());
-        response.put("pgRefundId", refund.getPgRefundId());
-        return response;
+        return new RefundCompletionResponse(
+                payment.getId(),
+                payment.getStatus().name(),
+                refund.getId(),
+                refund.getStatus(),
+                refund.getCompletedAt(),
+                refund.getPgRefundId()
+        );
     }
 
     @Transactional(readOnly = true)
-    public Map<String, Object> getOpsSummary() {
+    public PaymentOpsSummaryResponse getOpsSummary() {
         long total = paymentRepository.count();
         long expired = paymentRepository.countByStatus(PaymentStatus.EXPIRED);
         long refundRequired = paymentRepository.countByStatus(PaymentStatus.REFUND_REQUIRED);
@@ -690,15 +699,58 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         double expiredRate = total == 0 ? 0.0 : (expired * 100.0) / total;
         double refundRequiredRate = total == 0 ? 0.0 : (refundRequired * 100.0) / total;
 
-        Map<String, Object> result = new HashMap<>();
-        result.put("totalPayments", total);
-        result.put("expiredPayments", expired);
-        result.put("expiredRatePercent", Math.round(expiredRate * 100.0) / 100.0);
-        result.put("refundRequiredPayments", refundRequired);
-        result.put("refundRequiredRatePercent", Math.round(refundRequiredRate * 100.0) / 100.0);
-        result.put("webhookDoneReceived", webhookDoneReceived);
-        result.put("duplicateWebhookDoneEstimated", duplicateWebhookDone);
-        return result;
+        return new PaymentOpsSummaryResponse(
+                total,
+                expired,
+                Math.round(expiredRate * 100.0) / 100.0,
+                refundRequired,
+                Math.round(refundRequiredRate * 100.0) / 100.0,
+                webhookDoneReceived,
+                duplicateWebhookDone
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public List<PaymentRefundRequiredItemResponse> getOpsRefundRequiredPayments() {
+        return paymentRepository.findTop50ByStatusOrderByUpdatedAtDesc(PaymentStatus.REFUND_REQUIRED)
+                .stream()
+                .map(payment -> new PaymentRefundRequiredItemResponse(
+                        payment.getId(),
+                        payment.getBookingId(),
+                        payment.getAmount(),
+                        payment.getStatus().name(),
+                        payment.getPgOrderId(),
+                        payment.getUpdatedAt()
+                ))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<PaymentWebhookEventResponse> getOpsWebhookEvents() {
+        return paymentEventRepository.findTop100ByEventTypeStartingWithOrderByCreatedAtDesc("WEBHOOK_")
+                .stream()
+                .map(event -> new PaymentWebhookEventResponse(
+                        event.getEventId(),
+                        event.getPaymentId(),
+                        event.getEventType(),
+                        event.getPgEventId(),
+                        event.getFromStatus(),
+                        event.getToStatus(),
+                        event.getCreatedAt(),
+                        event.getOccurredAt()
+                ))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public PaymentSchedulerHealthResponse getOpsSchedulerHealth() {
+        return new PaymentSchedulerHealthResponse(
+                paymentExpireSchedulerDelayMs,
+                paymentRepository.countByStatus(PaymentStatus.PENDING),
+                paymentRepository.countByStatus(PaymentStatus.PAYING),
+                paymentRepository.countByStatus(PaymentStatus.EXPIRED),
+                paymentRepository.countByStatus(PaymentStatus.REFUND_REQUIRED)
+        );
     }
 
     private void ensureOwner(Payment payment, Long userId) {

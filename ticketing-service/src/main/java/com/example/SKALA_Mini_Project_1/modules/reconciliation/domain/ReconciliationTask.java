@@ -5,6 +5,8 @@ import java.util.UUID;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
@@ -29,8 +31,9 @@ public class ReconciliationTask {
     @Column(name = "mismatch_type", nullable = false, length = 80)
     private String mismatchType;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 40)
-    private String status;
+    private ReconciliationTaskStatus status;
 
     @Column(name = "booking_status", length = 40)
     private String bookingStatus;
@@ -61,6 +64,12 @@ public class ReconciliationTask {
 
     @Column(name = "requested_at")
     private OffsetDateTime requestedAt;
+
+    @Column(name = "last_processed_at")
+    private OffsetDateTime lastProcessedAt;
+
+    @Column(name = "next_retry_at")
+    private OffsetDateTime nextRetryAt;
 
     @Column(name = "completed_at")
     private OffsetDateTime completedAt;

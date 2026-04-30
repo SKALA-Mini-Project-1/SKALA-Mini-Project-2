@@ -12,9 +12,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.example.SKALA_Mini_Project_1.modules.payments.client.InternalBookingFinalizationResponse;
-import com.example.SKALA_Mini_Project_1.modules.payments.client.TicketingFinalizationAction;
-import com.example.SKALA_Mini_Project_1.modules.payments.client.TicketingFinalizationClient;
+import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.InternalBookingFinalizationResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.TicketingFinalizationAction;
+import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.TicketingFinalizationClient;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.Payment;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.PaymentStatus;
 import com.example.SKALA_Mini_Project_1.modules.payments.repository.PaymentRepository;

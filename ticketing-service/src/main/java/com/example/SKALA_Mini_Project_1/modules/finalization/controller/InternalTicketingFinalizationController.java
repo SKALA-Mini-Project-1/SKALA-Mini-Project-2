@@ -4,6 +4,7 @@ import com.example.SKALA_Mini_Project_1.modules.finalization.dto.InternalBooking
 import com.example.SKALA_Mini_Project_1.modules.finalization.dto.InternalBookingConfirmRequest;
 import com.example.SKALA_Mini_Project_1.modules.finalization.dto.InternalBookingExpireRequest;
 import com.example.SKALA_Mini_Project_1.modules.finalization.dto.InternalBookingFinalizationResponse;
+import com.example.SKALA_Mini_Project_1.modules.events.service.TicketingInboxEventService;
 import com.example.SKALA_Mini_Project_1.modules.finalization.service.InternalApiGuard;
 import com.example.SKALA_Mini_Project_1.modules.finalization.service.TicketingFinalizationService;
 import jakarta.validation.Valid;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class InternalTicketingFinalizationController {
 
     private final InternalApiGuard internalApiGuard;
+    private final TicketingInboxEventService ticketingInboxEventService;
     private final TicketingFinalizationService ticketingFinalizationService;
 
     @PostMapping("/confirm")
@@ -29,6 +31,13 @@ public class InternalTicketingFinalizationController {
             @Valid @RequestBody InternalBookingConfirmRequest request
     ) {
         internalApiGuard.validate(apiKey);
+        ticketingInboxEventService.recordIngress(
+                "payment.confirmed",
+                request.bookingId(),
+                request.paymentId(),
+                request.pgOrderId(),
+                request.pgPaymentKey()
+        );
         return ResponseEntity.ok(ticketingFinalizationService.confirmBooking(request));
     }
 
@@ -38,6 +47,13 @@ public class InternalTicketingFinalizationController {
             @Valid @RequestBody InternalBookingCancelRequest request
     ) {
         internalApiGuard.validate(apiKey);
+        ticketingInboxEventService.recordIngress(
+                "payment.canceled",
+                request.bookingId(),
+                request.paymentId(),
+                request.pgOrderId(),
+                null
+        );
         return ResponseEntity.ok(ticketingFinalizationService.cancelBooking(request));
     }
 
@@ -47,6 +63,13 @@ public class InternalTicketingFinalizationController {
             @Valid @RequestBody InternalBookingExpireRequest request
     ) {
         internalApiGuard.validate(apiKey);
+        ticketingInboxEventService.recordIngress(
+                "payment.expired",
+                request.bookingId(),
+                request.paymentId(),
+                request.pgOrderId(),
+                null
+        );
         return ResponseEntity.ok(ticketingFinalizationService.expireBooking(request));
     }
 }

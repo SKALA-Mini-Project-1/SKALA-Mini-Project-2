@@ -26,9 +26,6 @@ public class QueueService {
     private static final Duration QUEUE_HEARTBEAT_TTL = Duration.ofMinutes(10);
     private static final Duration ENTRY_TOKEN_TTL = Duration.ofSeconds(180);
     private static final Duration SCHEDULE_VALIDATE_CACHE_TTL = Duration.ofMinutes(10);
-    private static final int REDIS_RETRY_MAX_ATTEMPTS = 2;
-    private static final long REDIS_RETRY_WAIT_MILLIS = 80L;
-
     private static final String ADMIT_AND_ISSUE_TOKEN_SCRIPT = """
             local rank = redis.call('ZRANK', KEYS[1], ARGV[1])
             if not rank then
@@ -71,6 +68,7 @@ public class QueueService {
     private final UserAuthClient userAuthClient;
     private final ConcertServiceClient concertServiceClient;
     private final QueuePriorityService queuePriorityService;
+    private final QueueRedisRetryPolicy queueRedisRetryPolicy;
 
     public TicketingStartResponse startTicketing(Long concertId, Long scheduleId, Long userId) {
         userAuthClient.ensureUserExists(userId);
@@ -252,20 +250,15 @@ public class QueueService {
 
     private <T> T runWithRedisRetry(Supplier<T> action) {
         RuntimeException last = null;
-        for (int attempt = 1; attempt <= REDIS_RETRY_MAX_ATTEMPTS; attempt++) {
+        for (int attempt = 1; attempt <= queueRedisRetryPolicy.maxAttempts(); attempt++) {
             try {
                 return action.get();
             } catch (RuntimeException e) {
                 last = e;
-                if (!isRedisFailure(e) || attempt == REDIS_RETRY_MAX_ATTEMPTS) {
+                if (!isRedisFailure(e) || attempt == queueRedisRetryPolicy.maxAttempts()) {
                     throw e;
                 }
-                try {
-                    Thread.sleep(REDIS_RETRY_WAIT_MILLIS);
-                } catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    throw e;
-                }
+                queueRedisRetryPolicy.pauseBeforeRetry();
             }
         }
         throw last;
