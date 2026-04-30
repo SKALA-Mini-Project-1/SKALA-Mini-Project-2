@@ -10,6 +10,7 @@ const paymentTarget = process.env.VITE_PAYMENT_API_URL ?? 'http://localhost:1808
 export default defineConfig({
   plugins: [vue()],
   server: {
+    allowedHosts: true,
     proxy: {
       '/api/users': {
         target: userAuthTarget,
