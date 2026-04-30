@@ -1,31 +1,37 @@
-# Ticketing Service
+# SKALA Mini Project 2
 
-<!-- Redis 실행 방법 -->
-cd infra
-docker-compose up -d
+현재 레포는 5개 백엔드 서비스를 멀티모듈로 분리한 상태를 기준으로 관리합니다.
 
-## Harbor Push
+- `user-auth-service`
+- `concert-service`
+- `queue-service`
+- `ticketing-service`
+- `payment-service`
+- `shared-kernel`
+- `frontend`
 
-Apple Silicon Mac 에서 일반 `docker build` 로 이미지를 만들면 `linux/arm64` 로 올라가서 AMD64 클러스터에서 실행되지 않을 수 있습니다.
-
-Harbor 로 올릴 때는 아래처럼 `buildx` 로 Linux 이미지를 바로 push 하세요.
-
-```bash
-docker login amdp-registry.skala-ai.com
-./scripts/push-harbor.sh
-```
-
-기본값:
-
-- `REGISTRY=amdp-registry.skala-ai.com`
-- `PROJECT=skala25a`
-- `TAG=latest`
-- `PLATFORM=linux/amd64`
-
-예시:
+## 로컬 실행
 
 ```bash
-TAG=v1 PLATFORM=linux/amd64 ./scripts/push-harbor.sh
+docker compose up --build
 ```
 
-로컬 compose 빌드도 기본적으로 AMD64 로 맞추기 위해 `docker-compose.yaml` 의 커스텀 서비스에 `platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}` 를 넣어두었습니다.
+기본 compose 경로는 아래를 함께 띄웁니다.
+
+- `postgres`
+- `redis`
+- 5개 백엔드 서비스
+- `frontend`
+
+## 현재 기준
+
+- `backend` 레거시 모놀리스는 제거했습니다.
+- `gateway` 레거시 프록시는 제거했습니다.
+- 외부 진입 분기는 프론트의 서비스별 직접 프록시와 이후 Ingress 기준을 전제로 합니다.
+- `shared-kernel` 은 배포 대상이 아니라 공통 빌드 모듈입니다.
+
+## 참고 문서
+
+- [MSA_WORK_LOG_KO.md](./msa-docs/MSA_WORK_LOG_KO.md)
+- [MSA_SERVICE_MAP_KO.md](./msa-docs/MSA_SERVICE_MAP_KO.md)
+- [MSA_DEPLOY_PREP_KO.md](./msa-docs/MSA_DEPLOY_PREP_KO.md)
