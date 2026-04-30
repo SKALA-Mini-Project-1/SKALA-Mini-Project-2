@@ -20,7 +20,7 @@ services:
       - "6379:6379"
 
   user-auth-service:
-    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/arm64}
+    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
     image: team4-user-auth-service
     build:
       context: .
@@ -44,7 +44,7 @@ services:
       - "18081:8080"
 
   concert-service:
-    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/arm64}
+    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
     image: team4-concert-service
     build:
       context: .
@@ -64,7 +64,7 @@ services:
       - "18082:8080"
 
   queue-service:
-    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/arm64}
+    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
     image: team4-queue-service
     build:
       context: .
@@ -87,7 +87,7 @@ services:
       - "18083:8080"
 
   ticketing-service:
-    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/arm64}
+    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
     image: team4-ticketing-service
     build:
       context: .
@@ -111,7 +111,7 @@ services:
       - "18084:8080"
 
   payment-service:
-    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/arm64}
+    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
     image: team4-payment-service
     build:
       context: .
