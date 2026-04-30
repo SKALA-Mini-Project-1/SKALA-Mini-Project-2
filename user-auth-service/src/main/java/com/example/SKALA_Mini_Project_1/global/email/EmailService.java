@@ -6,6 +6,8 @@ import org.springframework.mail.MailException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+import org.springframework.beans.factory.annotation.Value;
 
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
@@ -19,6 +21,14 @@ public class EmailService {
     
     private final JavaMailSender mailSender;
     private final EmailProperties emailProperties;
+    @Value("${spring.mail.username:}")
+    private String mailUsername;
+    @Value("${spring.mail.password:}")
+    private String mailPassword;
+
+    public boolean canSendEmails() {
+        return StringUtils.hasText(mailUsername) && StringUtils.hasText(mailPassword);
+    }
     
     /**
      * 이메일 인증 코드 발송
@@ -27,6 +37,11 @@ public class EmailService {
      * @throws RuntimeException 이메일 발송 실패 시
      */
     public void sendVerificationCode(String toEmail, String verificationCode) {
+        if (!canSendEmails()) {
+            log.warn("SMTP 설정이 없어 실제 이메일 발송을 건너뜁니다 - 수신자: {}, 인증코드: {}", toEmail, verificationCode);
+            return;
+        }
+
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");

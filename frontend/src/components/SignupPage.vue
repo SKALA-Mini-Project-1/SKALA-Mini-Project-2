@@ -7,6 +7,7 @@ interface EmailVerificationResponse {
   message: string
   expirationMinutes: number | null
   resendAvailableAt: number | null
+  verificationCode?: string | null
 }
 
 interface SignUpResponse {
@@ -36,6 +37,7 @@ const resendCooldownSeconds = ref(0)
 const loading = ref(false)
 const infoMessage = ref('')
 const errorMessage = ref('')
+const devVerificationCode = ref('')
 
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 let resendTimer: ReturnType<typeof setInterval> | null = null
@@ -166,6 +168,7 @@ const sendCode = async () => {
     emailSent.value = true
     emailVerified.value = false
     code.value = ''
+    devVerificationCode.value = response.verificationCode ?? ''
     startCountdown(response.expirationMinutes)
     startResendCooldown(
       response.resendAvailableAt ? getSecondsFromUnixTimestamp(response.resendAvailableAt) : 60,
@@ -201,6 +204,7 @@ const verifyCode = async () => {
     })
 
     emailVerified.value = true
+    devVerificationCode.value = ''
     stopCountdown()
     infoMessage.value = response.message
   })
@@ -223,6 +227,7 @@ const signup = async () => {
     })
 
     infoMessage.value = response.message
+    devVerificationCode.value = ''
     emit('navigate', '/login')
   })
 }
@@ -294,6 +299,9 @@ onUnmounted(() => {
         </p>
         <p v-if="emailVerified" class="mt-1 text-xs font-semibold text-green-600">
           이메일 인증이 완료되었습니다.
+        </p>
+        <p v-if="devVerificationCode" class="mt-2 rounded-sm bg-[#fff3e8] px-3 py-2 text-xs font-semibold text-[#b85a00]">
+          개발용 인증코드: {{ devVerificationCode }}
         </p>
       </div>
 

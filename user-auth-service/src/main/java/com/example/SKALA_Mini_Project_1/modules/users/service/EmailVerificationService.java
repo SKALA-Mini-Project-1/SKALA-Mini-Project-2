@@ -68,15 +68,19 @@ public class EmailVerificationService {
             verificationRepository.deleteVerificationCode(email);
             throw new RuntimeException("이메일 발송에 실패했습니다. 잠시 후 다시 시도해주세요.");
         }
-        
+
         // 7. 응답 생성
         Long resendAvailableAt = verificationRepository.getResendAvailableTime(email);
+        boolean emailDeliveryEnabled = emailService.canSendEmails();
         
         return EmailVerificationResponse.builder()
                 .email(email)
-                .message("인증 코드가 이메일로 발송되었습니다")
+                .message(emailDeliveryEnabled
+                        ? "인증 코드가 이메일로 발송되었습니다"
+                        : "개발 모드로 인증 코드가 발급되었습니다. 화면에 표시된 코드를 입력해주세요.")
                 .expirationMinutes(expirationMinutes)
                 .resendAvailableAt(resendAvailableAt)
+                .verificationCode(emailDeliveryEnabled ? null : code)
                 .build();
     }
     
@@ -111,6 +115,7 @@ public class EmailVerificationService {
                 .message("이메일 인증이 완료되었습니다")
                 .expirationMinutes(null)
                 .resendAvailableAt(null)
+                .verificationCode(null)
                 .build();
     }
     
