@@ -1,8 +1,8 @@
 package com.example.SKALA_Mini_Project_1.modules.waiting.service;
 
 import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
+import com.example.SKALA_Mini_Project_1.integration.concert.ConcertServiceClient;
 import com.example.SKALA_Mini_Project_1.integration.userauth.UserAuthClient;
-import com.example.SKALA_Mini_Project_1.modules.fanscore.FanScoreService;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.QueueStatusResponse;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.TicketingStartResponse;
 import lombok.RequiredArgsConstructor;
@@ -10,7 +10,6 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -27,9 +26,6 @@ public class QueueService {
     private static final Duration QUEUE_HEARTBEAT_TTL = Duration.ofMinutes(10);
     private static final Duration ENTRY_TOKEN_TTL = Duration.ofSeconds(180);
     private static final Duration SCHEDULE_VALIDATE_CACHE_TTL = Duration.ofMinutes(10);
-    private static final int REDIS_RETRY_MAX_ATTEMPTS = 2;
-    private static final long REDIS_RETRY_WAIT_MILLIS = 80L;
-
     private static final String ADMIT_AND_ISSUE_TOKEN_SCRIPT = """
             local rank = redis.call('ZRANK', KEYS[1], ARGV[1])
             if not rank then
@@ -70,15 +66,16 @@ public class QueueService {
 
     private final RedisTemplate<String, String> redisTemplate;
     private final UserAuthClient userAuthClient;
-    private final JdbcTemplate jdbcTemplate;
-    private final FanScoreService fanScoreService;
+    private final ConcertServiceClient concertServiceClient;
+    private final QueuePriorityService queuePriorityService;
+    private final QueueRedisRetryPolicy queueRedisRetryPolicy;
 
     public TicketingStartResponse startTicketing(Long concertId, Long scheduleId, Long userId) {
         userAuthClient.ensureUserExists(userId);
 
         validateScheduleBelongsToConcert(concertId, scheduleId);
 
-        long fanWeightMillis = fanScoreService.getQueuePriorityBoostMillis(userId, concertId);
+        long fanWeightMillis = queuePriorityService.getQueuePriorityBoostMillis(userId, concertId);
         long rank = enterQueue(concertId, scheduleId, String.valueOf(userId), fanWeightMillis);
         return TicketingStartResponse.waiting(rank + 1);
     }
@@ -164,7 +161,7 @@ public class QueueService {
         runWithRedisRetry(() -> redisTemplate.opsForSet().add(RedisKeyGenerator.seatActiveIndexKey(), activeKey));
 
         long now = System.currentTimeMillis();
-        long weight = Math.min(fandomWeightMillis, FanScoreService.MAX_QUEUE_PRIORITY_BOOST_MILLIS);
+        long weight = Math.min(fandomWeightMillis, QueuePriorityService.MAX_QUEUE_PRIORITY_BOOST_MILLIS);
         long jitter = ThreadLocalRandom.current().nextLong(0, 50);
         long score = now - weight + jitter;
 
@@ -213,16 +210,10 @@ public class QueueService {
                 return;
             }
         } catch (RuntimeException ignored) {
-            // Redis 장애 시 DB 검증으로 폴백
+            // Redis 장애 시 원격 검증 결과만 사용
         }
 
-        String sql = "SELECT COUNT(1) FROM schedules WHERE id = ? AND concert_id = ?";
-        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, scheduleId, concertId);
-        if (count == null || count == 0) {
-            throw new IllegalArgumentException(
-                    "회차를 찾을 수 없습니다. concertId=" + concertId + ", scheduleId=" + scheduleId
-            );
-        }
+        concertServiceClient.ensureScheduleBelongsToConcert(concertId, scheduleId);
 
         try {
             redisTemplate.opsForValue().set(cacheKey, "1", SCHEDULE_VALIDATE_CACHE_TTL);
@@ -259,20 +250,15 @@ public class QueueService {
 
     private <T> T runWithRedisRetry(Supplier<T> action) {
         RuntimeException last = null;
-        for (int attempt = 1; attempt <= REDIS_RETRY_MAX_ATTEMPTS; attempt++) {
+        for (int attempt = 1; attempt <= queueRedisRetryPolicy.maxAttempts(); attempt++) {
             try {
                 return action.get();
             } catch (RuntimeException e) {
                 last = e;
-                if (!isRedisFailure(e) || attempt == REDIS_RETRY_MAX_ATTEMPTS) {
+                if (!isRedisFailure(e) || attempt == queueRedisRetryPolicy.maxAttempts()) {
                     throw e;
                 }
-                try {
-                    Thread.sleep(REDIS_RETRY_WAIT_MILLIS);
-                } catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    throw e;
-                }
+                queueRedisRetryPolicy.pauseBeforeRetry();
             }
         }
         throw last;

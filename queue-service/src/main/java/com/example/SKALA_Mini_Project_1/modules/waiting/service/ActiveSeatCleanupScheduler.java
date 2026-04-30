@@ -39,7 +39,7 @@ public class ActiveSeatCleanupScheduler {
 
     private final RedisTemplate<String, String> redisTemplate;
 
-    @Scheduled(fixedDelay = 10000) // 10초마다 실행
+    @Scheduled(fixedDelayString = "${queue.scheduler.active-seat-sync.fixed-delay-ms:10000}")
     public void syncActiveCount() {
         String lockToken = UUID.randomUUID().toString();
         Boolean locked = redisTemplate.opsForValue()

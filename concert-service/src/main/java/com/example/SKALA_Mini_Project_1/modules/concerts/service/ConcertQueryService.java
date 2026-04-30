@@ -20,4 +20,12 @@ public class ConcertQueryService {
     public ConcertResponse getVisibleConcertById(Long concertId) {
         return concertQueryRepository.findVisibleConcertById(concertId);
     }
+
+    public boolean existsScheduleForConcert(Long concertId, Long scheduleId) {
+        return concertQueryRepository.existsScheduleForConcert(concertId, scheduleId);
+    }
+
+    public Long getArtistIdByConcertId(Long concertId) {
+        return concertQueryRepository.findArtistIdByConcertId(concertId);
+    }
 }

@@ -5,6 +5,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
@@ -29,6 +30,12 @@ public class Seat {
     @Column(name = "schedule_id", nullable = false)
     private Long scheduleId;
 
+    @Column(name = "grade", nullable = false)
+    private String grade = "R";
+
+    @Column(name = "price", nullable = false, precision = 12, scale = 2)
+    private BigDecimal price = BigDecimal.ZERO;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private SeatStatus status = SeatStatus.AVAILABLE;
@@ -45,6 +52,8 @@ public class Seat {
         this.rowNumber = rowNumber;
         this.seatNumber = seatNumber;
         this.status = SeatStatus.AVAILABLE;
+        this.grade = "R";
+        this.price = BigDecimal.ZERO;
     }
 
     /**

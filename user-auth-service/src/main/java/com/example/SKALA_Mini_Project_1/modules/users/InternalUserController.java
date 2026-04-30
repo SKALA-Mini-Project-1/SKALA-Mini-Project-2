@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -14,11 +15,16 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/internal/users")
 public class InternalUserController {
 
+    private final InternalApiGuard internalApiGuard;
     private final UserService userService;
 
     @GetMapping("/{userId}")
-    public ResponseEntity<InternalUserProfileResponse> getUserProfile(@PathVariable Long userId) {
+    public ResponseEntity<InternalUserProfileResponse> getUserProfile(
+            @RequestHeader(InternalApiGuard.HEADER_NAME) String apiKey,
+            @PathVariable Long userId
+    ) {
         try {
+            internalApiGuard.validate(apiKey);
             User user = userService.getUserById(userId);
             return ResponseEntity.ok(new InternalUserProfileResponse(
                     user.getId(),

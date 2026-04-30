@@ -1,6 +1,7 @@
 package com.example.SKALA_Mini_Project_1.modules.seats.service;
 
 import com.example.SKALA_Mini_Project_1.global.redis.RedisLockRepository;
+import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
 import com.example.SKALA_Mini_Project_1.modules.seats.domain.Seat;
 import com.example.SKALA_Mini_Project_1.modules.seats.domain.SeatStatus;
 import com.example.SKALA_Mini_Project_1.modules.seats.repository.SeatRepository;
@@ -8,8 +9,10 @@ import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -34,9 +37,11 @@ public class SeatReservationService {
     }
 
     public record BatchHoldResult(boolean success, List<Long> heldSeatIds, List<Long> failedSeatIds) {}
+    public record LeaveSeatScreenResult(int releasedSeatCount, boolean activeDecremented, long activeCount) {}
 
     private final SeatRepository seatRepository;
     private final RedisLockRepository redisLockRepository;
+    private final RedisTemplate<String, String> redisTemplate;
 
     public SeatHoldResult reserveSeatTemporary(Long scheduleId, Long seatId, Long userId) {
         Seat seat = validateSeat(scheduleId, seatId);
@@ -177,6 +182,50 @@ public class SeatReservationService {
     public int releaseAllSeatHolds(Long scheduleId, Long userId) {
         Long concertId = findConcertIdByScheduleId(scheduleId);
         return redisLockRepository.releaseUserHeldSeats(concertId, scheduleId, String.valueOf(userId));
+    }
+
+    public Long resolveSeatId(Long scheduleId, String section, Integer rowNumber, Integer seatNumber) {
+        Seat seat = seatRepository
+                .findByScheduleIdAndSectionAndRowNumberAndSeatNumber(scheduleId, section, rowNumber, seatNumber)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "좌석이 존재하지 않습니다. section=%s, row=%d, seat=%d".formatted(
+                                section,
+                                rowNumber,
+                                seatNumber
+                        )
+                ));
+        return seat.getId();
+    }
+
+    public LeaveSeatScreenResult leaveSeatScreen(Long concertId, Long scheduleId, Long userId) {
+        Long resolvedConcertId = findConcertIdByScheduleId(scheduleId);
+        if (!resolvedConcertId.equals(concertId)) {
+            throw new IllegalArgumentException("콘서트/회차 정보가 일치하지 않습니다.");
+        }
+
+        int releasedSeatCount = releaseAllSeatHolds(scheduleId, userId);
+
+        String accessKey = RedisKeyGenerator.seatAccessKey(userId, concertId, scheduleId);
+        String accessByScheduleKey = RedisKeyGenerator.seatAccessByScheduleKey(userId, scheduleId);
+        boolean hadAccess = Boolean.TRUE.equals(redisTemplate.hasKey(accessKey));
+
+        redisTemplate.delete(accessKey);
+        redisTemplate.delete(accessByScheduleKey);
+        redisTemplate.opsForSet().remove(
+                RedisKeyGenerator.seatAccessIndexKey(concertId, scheduleId),
+                String.valueOf(userId)
+        );
+
+        Long active = null;
+        if (hadAccess) {
+            active = redisLockRepository.decrementSeatActiveFloorZero(concertId, scheduleId);
+        }
+
+        return new LeaveSeatScreenResult(
+                releasedSeatCount,
+                hadAccess,
+                active == null ? -1L : active
+        );
     }
 
     private Seat validateSeat(Long scheduleId, Long seatId) {
