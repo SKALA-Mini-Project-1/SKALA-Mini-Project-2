@@ -45,4 +45,6 @@ desktop.ini
 
 # Local docs/papers
 /paper/
-/backend/src/main/java/com/example/SKALA_Mini_Project_1/modules/payments/paper/
+
+# Kubernetes local secrets
+/k8s/base/secret.yaml

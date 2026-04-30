@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { getToken } from "../services/auth";
+import { buildApiUrl } from "../services/api";
 
 const emit = defineEmits<{
   navigate: [path: string];
@@ -9,21 +10,12 @@ const emit = defineEmits<{
 const loading = ref(true);
 const errorMessage = ref<string | null>(null);
 
-const getPaymentsBase = () => {
-  const apiBase =
-    (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
-    (import.meta.env.VITE_BACKEND_BASE_URL as string | undefined) ??
-    "";
-  const trimmed = apiBase.replace(/\/$/, "");
-  return trimmed ? `${trimmed}/api/payments` : "/api/payments";
-};
-
 async function confirmPayment(paymentKey: string, orderId: string, amount: number) {
   const token = getToken();
   if (!token) {
     throw new Error("로그인이 만료되었습니다. 다시 로그인 후 결제를 확인해주세요.");
   }
-  const response = await fetch(`${getPaymentsBase()}/confirm`, {
+  const response = await fetch(buildApiUrl("/api/payments/confirm"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

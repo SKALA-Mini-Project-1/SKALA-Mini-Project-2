@@ -24,6 +24,8 @@ import com.example.SKALA_Mini_Project_1.modules.users.dto.EmailVerificationReque
 import com.example.SKALA_Mini_Project_1.modules.users.dto.EmailVerificationResponse;
 import com.example.SKALA_Mini_Project_1.modules.users.dto.LoginRequest;
 import com.example.SKALA_Mini_Project_1.modules.users.dto.LoginResponse;
+import com.example.SKALA_Mini_Project_1.modules.users.dto.LogoutResponse;
+import com.example.SKALA_Mini_Project_1.modules.users.dto.MyInfoResponse;
 import com.example.SKALA_Mini_Project_1.modules.users.dto.SignUpRequest;
 import com.example.SKALA_Mini_Project_1.modules.users.dto.SignUpResponse;
 import com.example.SKALA_Mini_Project_1.modules.users.dto.UpdateMyInfoRequest;
@@ -48,7 +50,7 @@ public class UserController {
     
     @Operation(summary = "이메일 인증 코드 발송", description = "회원가입을 위한 이메일 인증 코드를 발송합니다")
     @PostMapping("/email/send")
-    public ResponseEntity<?> sendVerificationCode(@Valid @RequestBody EmailVerificationRequest request) {
+    public ResponseEntity<Object> sendVerificationCode(@Valid @RequestBody EmailVerificationRequest request) {
         try {
             EmailVerificationResponse response = emailVerificationService.sendVerificationCode(request.getEmail());
             return ResponseEntity.ok(response);
@@ -66,7 +68,7 @@ public class UserController {
     
     @Operation(summary = "이메일 인증 코드 검증", description = "발송된 인증 코드를 검증합니다")
     @PostMapping("/email/verify")
-    public ResponseEntity<?> verifyCode(@Valid @RequestBody EmailVerificationCodeRequest request) {
+    public ResponseEntity<Object> verifyCode(@Valid @RequestBody EmailVerificationCodeRequest request) {
         try {
             EmailVerificationResponse response = emailVerificationService.verifyCode(
                 request.getEmail(), 
@@ -87,7 +89,7 @@ public class UserController {
     
     @Operation(summary = "로그인")
     @PostMapping("/login")
-    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request) {
+    public ResponseEntity<Object> login(@Valid @RequestBody LoginRequest request) {
         try {
             LoginResponse response = userService.login(request);
             return ResponseEntity.ok(response);
@@ -98,7 +100,7 @@ public class UserController {
     }
 
     @PostMapping("/signup")
-    public ResponseEntity<?> signUp(@Valid @RequestBody SignUpRequest request) {
+    public ResponseEntity<Object> signUp(@Valid @RequestBody SignUpRequest request) {
         try {
             SignUpResponse response = userService.signUp(request);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
@@ -111,7 +113,7 @@ public class UserController {
     // 로그아웃 API (Swagger 호환)
     @Operation(summary = "로그아웃")
     @PostMapping("/logout")
-    public ResponseEntity<?> logout(
+    public ResponseEntity<Object> logout(
             @Parameter(hidden = true) 
             @RequestHeader("Authorization") String authHeader  // ✨ 단순하게!
     ) {
@@ -127,10 +129,7 @@ public class UserController {
             String token = authHeader.substring(7);
             userService.logout(token);
             
-            return ResponseEntity.ok(Map.of(
-                "message", "로그아웃 성공",
-                "status", "success"
-            ));
+            return ResponseEntity.ok(LogoutResponse.success());
             
         } catch (IllegalArgumentException e) {
             ErrorResponse error = ErrorResponse.of(HttpStatus.BAD_REQUEST.value(), e.getMessage());
@@ -147,7 +146,7 @@ public class UserController {
     // JWT 인증 테스트용 엔드포인트
     @Operation(summary = "인증된 사용자 정보 조회", description = "현재 인증된 사용자의 정보를 조회합니다")
     @GetMapping("/me")
-    public ResponseEntity<?> getMyInfo() {
+    public ResponseEntity<MyInfoResponse> getMyInfo() {
         // 현재 로그인한 사용자 ID 가져오기
         Long userId = (Long) SecurityContextHolder.getContext()
                 .getAuthentication()
@@ -156,19 +155,19 @@ public class UserController {
         User user = userService.getUserById(userId);
         int totalFanScore = fanScoreService.getTotalFanScore(userId);
         
-        return ResponseEntity.ok(Map.of(
-            "userId", user.getId(),
-            "email", user.getEmail(),
-            "name", user.getName(),
-            "phone", user.getPhone() == null ? "" : user.getPhone(),
-            "fanScore", totalFanScore,
-            "message", "인증된 사용자 정보 조회 성공"
+        return ResponseEntity.ok(MyInfoResponse.of(
+                user.getId(),
+                user.getEmail(),
+                user.getName(),
+                user.getPhone() == null ? "" : user.getPhone(),
+                totalFanScore,
+                "인증된 사용자 정보 조회 성공"
         ));
     }
 
     @Operation(summary = "내 정보 수정", description = "현재 인증된 사용자의 이름/전화번호를 수정합니다")
     @PutMapping("/me")
-    public ResponseEntity<?> updateMyInfo(@Valid @RequestBody UpdateMyInfoRequest request) {
+    public ResponseEntity<MyInfoResponse> updateMyInfo(@Valid @RequestBody UpdateMyInfoRequest request) {
         Long userId = (Long) SecurityContextHolder.getContext()
                 .getAuthentication()
                 .getPrincipal();
@@ -176,27 +175,28 @@ public class UserController {
         User user = userService.updateMyInfo(userId, request);
         int totalFanScore = fanScoreService.getTotalFanScore(userId);
 
-        return ResponseEntity.ok(Map.of(
-                "userId", user.getId(),
-                "email", user.getEmail(),
-                "name", user.getName(),
-                "phone", user.getPhone() == null ? "" : user.getPhone(),
-                "fanScore", totalFanScore,
-                "message", "내 정보 수정 성공"
+        return ResponseEntity.ok(MyInfoResponse.of(
+                user.getId(),
+                user.getEmail(),
+                user.getName(),
+                user.getPhone() == null ? "" : user.getPhone(),
+                totalFanScore,
+                "내 정보 수정 성공"
         ));
     }
 
     
     // Validation 예외 처리 추가
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, String>> handleValidationException(MethodArgumentNotValidException e) {
+    public ResponseEntity<ErrorResponse> handleValidationException(MethodArgumentNotValidException e) {
         Map<String, String> errors = new HashMap<>();
         e.getBindingResult().getAllErrors().forEach(error -> {
             String fieldName = ((FieldError) error).getField();
             String errorMessage = error.getDefaultMessage();
             errors.put(fieldName, errorMessage);
         });
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errors);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponse.of(HttpStatus.BAD_REQUEST.value(), "Validation failed", errors));
     }
 
 }

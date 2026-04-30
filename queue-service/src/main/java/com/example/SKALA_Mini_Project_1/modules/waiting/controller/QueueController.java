@@ -7,9 +7,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.core.Authentication;
-import java.util.Map;
 
 import com.example.SKALA_Mini_Project_1.modules.waiting.service.QueueService;
+import com.example.SKALA_Mini_Project_1.modules.waiting.dto.LeaveQueueResponse;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.QueueStatusResponse;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.TicketingStartResponse;
 
@@ -23,7 +23,7 @@ public class QueueController {
     private final QueueService queueService;
 
     @PostMapping("/start")
-        public ResponseEntity<?> startTicketing(
+        public ResponseEntity<TicketingStartResponse> startTicketing(
                 @RequestParam("concertId") Long concertId,
                 @RequestParam("scheduleId") Long scheduleId,
                 Authentication authentication
@@ -47,16 +47,13 @@ public class QueueController {
         }
 
     @PostMapping("/leave")
-    public ResponseEntity<?> leaveQueue(
+    public ResponseEntity<LeaveQueueResponse> leaveQueue(
             @RequestParam("concertId") Long concertId,
             @RequestParam("scheduleId") Long scheduleId,
             Authentication authentication
     ) {
         Long userId = (Long) authentication.getPrincipal();
         boolean removed = queueService.leaveQueue(concertId, scheduleId, userId);
-        return ResponseEntity.ok(Map.of(
-                "status", "success",
-                "removed", removed
-        ));
+        return ResponseEntity.ok(LeaveQueueResponse.success(removed));
     }
 }

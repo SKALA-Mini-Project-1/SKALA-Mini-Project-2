@@ -2,11 +2,11 @@
 set -euo pipefail
 
 # Usage:
-# BASE_URL=http://localhost:8081 \
+# BASE_URL=http://localhost:18085 \
 # ORDER_ID=PAY_xxx PAYMENT_KEY=payment_key_xxx \
-# ./backend/src/main/java/com/example/SKALA_Mini_Project_1/modules/payments/paper/webhook-idempotency-check.sh
+# ./payment-service/src/main/java/com/example/SKALA_Mini_Project_1/modules/payments/paper/webhook-idempotency-check.sh
 
-BASE_URL="${BASE_URL:-http://localhost:8081}"
+BASE_URL="${BASE_URL:-http://localhost:18085}"
 ORDER_ID="${ORDER_ID:-}"
 PAYMENT_KEY="${PAYMENT_KEY:-}"
 TOTAL_AMOUNT="${TOTAL_AMOUNT:-1000}"

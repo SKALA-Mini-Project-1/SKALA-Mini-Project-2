@@ -1,3 +1,5 @@
+import { buildApiUrl } from "../services/api";
+
 export type PaymentCreateRequest = {
   bookingId: string;
   userId: number;
@@ -26,7 +28,7 @@ export type PaymentSubmitResponse = {
 };
 
 export async function createPayment(req: PaymentCreateRequest, token: string): Promise<PaymentCreateResponse> {
-  const res = await fetch("/api/payments/create", {
+  const res = await fetch(buildApiUrl("/api/payments/create"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -44,7 +46,7 @@ export async function createPayment(req: PaymentCreateRequest, token: string): P
 }
 
 export async function submitPayment(paymentId: string, token: string): Promise<PaymentSubmitResponse> {
-  const res = await fetch(`/api/payments/${paymentId}/submit`, {
+  const res = await fetch(buildApiUrl(`/api/payments/${paymentId}/submit`), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

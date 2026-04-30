@@ -73,6 +73,28 @@ public class ConcertQueryRepository {
         return rows.isEmpty() ? null : rows.get(0);
     }
 
+    public boolean existsScheduleForConcert(Long concertId, Long scheduleId) {
+        String sql = """
+                SELECT COUNT(1)
+                FROM schedules
+                WHERE id = ? AND concert_id = ?
+                """;
+
+        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, scheduleId, concertId);
+        return count != null && count > 0;
+    }
+
+    public Long findArtistIdByConcertId(Long concertId) {
+        String sql = """
+                SELECT artist_id
+                FROM concerts
+                WHERE id = ?
+                """;
+
+        List<Long> rows = jdbcTemplate.query(sql, this::mapNullableLong, concertId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
     private List<ConcertScheduleResponse> findSchedules(Long concertId) {
         String sql = """
                 SELECT id, start_time, end_time, total_seats
@@ -108,5 +130,9 @@ public class ConcertQueryRepository {
 
     private OffsetDateTime toOffsetDateTime(Timestamp ts) {
         return ts == null ? null : ts.toInstant().atOffset(ZoneOffset.UTC);
+    }
+
+    private Long mapNullableLong(ResultSet rs, int rowNum) throws SQLException {
+        return rs.getObject(1, Long.class);
     }
 }

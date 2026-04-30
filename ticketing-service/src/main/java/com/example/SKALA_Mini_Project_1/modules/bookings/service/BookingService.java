@@ -5,6 +5,10 @@ import com.example.SKALA_Mini_Project_1.integration.userauth.InternalUserProfile
 import com.example.SKALA_Mini_Project_1.integration.userauth.UserAuthClient;
 import com.example.SKALA_Mini_Project_1.modules.bookings.domain.Booking;
 import com.example.SKALA_Mini_Project_1.modules.bookings.domain.BookingItem;
+import com.example.SKALA_Mini_Project_1.modules.bookings.dto.BookedSeatResponse;
+import com.example.SKALA_Mini_Project_1.modules.bookings.dto.BookingBookerResponse;
+import com.example.SKALA_Mini_Project_1.modules.bookings.dto.BookingConcertResponse;
+import com.example.SKALA_Mini_Project_1.modules.bookings.dto.BookingDetailResponse;
 import com.example.SKALA_Mini_Project_1.modules.bookings.dto.CreateBookingRequest;
 import com.example.SKALA_Mini_Project_1.modules.bookings.dto.CreateBookingResponse;
 import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingItemRepository;
@@ -128,7 +132,7 @@ public class BookingService {
     }
 
     @Transactional(readOnly = true)
-    public Map<String, Object> getBookingDetail(Long userId, UUID bookingId) {
+    public BookingDetailResponse getBookingDetail(Long userId, UUID bookingId) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new EntityNotFoundException("예약 정보를 찾을 수 없습니다."));
 
@@ -142,19 +146,19 @@ public class BookingService {
         InternalUserProfileResponse userProfile = userAuthClient.getUserProfile(userId);
 
         List<Object[]> seatRows = bookingItemRepository.findBookedSeatDetails(bookingId);
-        List<Map<String, Object>> seats = new ArrayList<>();
+        List<BookedSeatResponse> seats = new ArrayList<>();
         List<Long> seatIds = new ArrayList<>();
 
         for (Object[] row : seatRows) {
             Long seatId = toLong(row[0]);
             seatIds.add(seatId);
-            seats.add(Map.of(
-                    "seatId", seatId,
-                    "section", row[1] == null ? null : row[1].toString(),
-                    "rowNumber", toInteger(row[2]),
-                    "seatNumber", toInteger(row[3]),
-                    "grade", row[4] == null ? null : row[4].toString(),
-                    "price", toBigDecimal(row[5])
+            seats.add(new BookedSeatResponse(
+                    seatId,
+                    row[1] == null ? null : row[1].toString(),
+                    toInteger(row[2]),
+                    toInteger(row[3]),
+                    row[4] == null ? null : row[4].toString(),
+                    toBigDecimal(row[5])
             ));
         }
 
@@ -166,34 +170,33 @@ public class BookingService {
         }
         boolean payable = "HOLDING".equalsIgnoreCase(booking.getStatus()) && remainingSeconds > 0;
 
-        Map<String, Object> booker = new HashMap<>();
-        booker.put("name", userProfile.name());
-        booker.put("email", userProfile.email());
-        booker.put("phone", userProfile.phone());
+        BookingBookerResponse booker = new BookingBookerResponse(
+                userProfile.name(),
+                userProfile.email(),
+                userProfile.phone()
+        );
 
-        Map<String, Object> concert = new HashMap<>();
-        concert.put("concertName", concertInfo.getConcertTitle());
-        concert.put("venue", concertInfo.getConcertVenue());
-        concert.put(
-                "showDateTime",
+        BookingConcertResponse concert = new BookingConcertResponse(
+                concertInfo.getConcertTitle(),
+                concertInfo.getConcertVenue(),
                 concertInfo.getShowTime() == null
                         ? null
-                        : OffsetDateTime.ofInstant(concertInfo.getShowTime(), ZoneOffset.UTC)
+                        : OffsetDateTime.ofInstant(concertInfo.getShowTime(), ZoneOffset.UTC),
+                booking.getScheduleId()
         );
-        concert.put("scheduleId", booking.getScheduleId());
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("bookingId", booking.getId());
-        response.put("status", booking.getStatus());
-        response.put("totalPrice", booking.getTotalPrice());
-        response.put("expiresAt", expiresAt);
-        response.put("remainingSeconds", remainingSeconds);
-        response.put("payable", payable);
-        response.put("seatIds", seatIds);
-        response.put("seats", seats);
-        response.put("booker", booker);
-        response.put("concert", concert);
-        return response;
+        return new BookingDetailResponse(
+                booking.getId(),
+                booking.getStatus(),
+                booking.getTotalPrice(),
+                expiresAt,
+                remainingSeconds,
+                payable,
+                seatIds,
+                seats,
+                booker,
+                concert
+        );
     }
 
     private Long toLong(Object value) {

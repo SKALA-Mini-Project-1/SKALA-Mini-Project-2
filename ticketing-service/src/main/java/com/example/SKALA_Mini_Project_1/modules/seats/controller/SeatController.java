@@ -20,14 +20,15 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.example.SKALA_Mini_Project_1.modules.seats.domain.Seat;
+import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
 import com.example.SKALA_Mini_Project_1.modules.seats.dto.BatchSeatHoldRequest;
+import com.example.SKALA_Mini_Project_1.modules.seats.dto.SeatActionResponse;
+import com.example.SKALA_Mini_Project_1.modules.seats.dto.SeatBatchHoldResponse;
+import com.example.SKALA_Mini_Project_1.modules.seats.dto.SeatEnterResponse;
+import com.example.SKALA_Mini_Project_1.modules.seats.dto.SeatLeaveScreenResponse;
 import com.example.SKALA_Mini_Project_1.modules.seats.dto.SeatSelectRequest;
-import com.example.SKALA_Mini_Project_1.modules.seats.repository.SeatRepository;
 import com.example.SKALA_Mini_Project_1.modules.seats.service.QueueEntryTokenService;
 import com.example.SKALA_Mini_Project_1.modules.seats.service.SeatReservationService;
-import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
-import com.example.SKALA_Mini_Project_1.global.redis.RedisLockRepository;
 
 
 import org.springframework.data.redis.core.RedisTemplate;
@@ -43,9 +44,7 @@ public class SeatController {
 
     private final SeatReservationService seatReservationService;
     private final RedisTemplate<String, String> redisTemplate;
-    private final SeatRepository seatRepository;
     private final QueueEntryTokenService queueEntryTokenService;
-    private final RedisLockRepository redisLockRepository;
 
     
 
@@ -61,12 +60,17 @@ public class SeatController {
             @ApiResponse(responseCode = "404", description = "좌석 ID 없음"),
             @ApiResponse(responseCode = "409", description = "다른 사용자가 이미 선점했거나 판매 완료된 좌석")
     })
-    public ResponseEntity<?> reserveSeat(@RequestBody @Valid SeatSelectRequest requestDto) {
+    public ResponseEntity<SeatActionResponse> reserveSeat(@RequestBody @Valid SeatSelectRequest requestDto) {
         try {
             Long userId = (Long) SecurityContextHolder.getContext()
                     .getAuthentication()
                     .getPrincipal();
-            Long seatId = resolveSeatId(requestDto);
+            Long seatId = seatReservationService.resolveSeatId(
+                    requestDto.getScheduleId(),
+                    requestDto.getSection(),
+                    requestDto.getRowNumber(),
+                    requestDto.getSeatNumber()
+            );
 
             SeatReservationService.SeatHoldResult result = seatReservationService.reserveSeatTemporary(
                     requestDto.getScheduleId(),
@@ -75,33 +79,19 @@ public class SeatController {
             );
 
             if (result == SeatReservationService.SeatHoldResult.RELEASED) {
-                return ResponseEntity.ok(Map.of(
-                        "message", "선점한 좌석이 해제되었습니다.",
-                        "status", "success",
-                        "action", "released"
-                ));
+                return ResponseEntity.ok(SeatActionResponse.success("선점한 좌석이 해제되었습니다.", "released"));
             }
 
-            return ResponseEntity.ok(Map.of(
-                    "message", "좌석이 성공적으로 선점되었습니다.",
-                    "status", "success",
-                    "action", "held"
-            ));
+            return ResponseEntity.ok(SeatActionResponse.success("좌석이 성공적으로 선점되었습니다.", "held"));
         } catch (EntityNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
-                    "message", e.getMessage(),
-                    "status", "not_found"
-            ));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(SeatActionResponse.failure("not_found", e.getMessage()));
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "message", e.getMessage(),
-                    "status", "bad_request"
-            ));
+            return ResponseEntity.badRequest()
+                    .body(SeatActionResponse.failure("bad_request", e.getMessage()));
         } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
-                    "message", e.getMessage(),
-                    "status", "conflict"
-            ));
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(SeatActionResponse.failure("conflict", e.getMessage()));
         }
     }
 
@@ -130,7 +120,7 @@ public class SeatController {
             @ApiResponse(responseCode = "401", description = "인증 필요"),
             @ApiResponse(responseCode = "409", description = "일부 좌석 선점 실패")
     })
-    public ResponseEntity<?> holdSeatsBatch(@RequestBody @Valid BatchSeatHoldRequest request) {
+    public ResponseEntity<SeatBatchHoldResponse> holdSeatsBatch(@RequestBody @Valid BatchSeatHoldRequest request) {
         Long userId = (Long) SecurityContextHolder.getContext()
                 .getAuthentication()
                 .getPrincipal();
@@ -143,23 +133,13 @@ public class SeatController {
             );
 
             if (!result.success()) {
-                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
-                        "message", "일부 좌석 선점에 실패했습니다.",
-                        "status", "conflict",
-                        "failedSeatIds", result.failedSeatIds()
-                ));
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(SeatBatchHoldResponse.conflict("일부 좌석 선점에 실패했습니다.", result.failedSeatIds()));
             }
 
-            return ResponseEntity.ok(Map.of(
-                    "message", "좌석 일괄 선점에 성공했습니다.",
-                    "status", "success",
-                    "heldSeatIds", result.heldSeatIds()
-            ));
+            return ResponseEntity.ok(SeatBatchHoldResponse.success("좌석 일괄 선점에 성공했습니다.", result.heldSeatIds()));
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "message", e.getMessage(),
-                    "status", "bad_request"
-            ));
+            return ResponseEntity.badRequest().body(SeatBatchHoldResponse.badRequest(e.getMessage()));
         }
     }
 
@@ -175,13 +155,18 @@ public class SeatController {
             @ApiResponse(responseCode = "404", description = "좌석 ID 없음"),
             @ApiResponse(responseCode = "409", description = "다른 사용자가 선점한 좌석")
     })
-    public ResponseEntity<?> releaseSeat(@RequestBody @Valid SeatSelectRequest requestDto) {
+    public ResponseEntity<SeatActionResponse> releaseSeat(@RequestBody @Valid SeatSelectRequest requestDto) {
         Long userId = (Long) SecurityContextHolder.getContext()
                 .getAuthentication()
                 .getPrincipal();
 
         try {
-            Long seatId = resolveSeatId(requestDto);
+            Long seatId = seatReservationService.resolveSeatId(
+                    requestDto.getScheduleId(),
+                    requestDto.getSection(),
+                    requestDto.getRowNumber(),
+                    requestDto.getSeatNumber()
+            );
             SeatReservationService.SeatReleaseResult result = seatReservationService.releaseSeatHold(
                     requestDto.getScheduleId(),
                     seatId,
@@ -189,38 +174,24 @@ public class SeatController {
             );
 
             if (result == SeatReservationService.SeatReleaseResult.ALREADY_RELEASED) {
-                return ResponseEntity.ok(Map.of(
-                        "message", "이미 해제된 좌석입니다.",
-                        "status", "success",
-                        "action", "already_released"
-                ));
+                return ResponseEntity.ok(SeatActionResponse.success("이미 해제된 좌석입니다.", "already_released"));
             }
 
-            return ResponseEntity.ok(Map.of(
-                    "message", "좌석 선점이 해제되었습니다.",
-                    "status", "success",
-                    "action", "released"
-            ));
+            return ResponseEntity.ok(SeatActionResponse.success("좌석 선점이 해제되었습니다.", "released"));
         } catch (EntityNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
-                    "message", e.getMessage(),
-                    "status", "not_found"
-            ));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(SeatActionResponse.failure("not_found", e.getMessage()));
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "message", e.getMessage(),
-                    "status", "bad_request"
-            ));
+            return ResponseEntity.badRequest()
+                    .body(SeatActionResponse.failure("bad_request", e.getMessage()));
         } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
-                    "message", e.getMessage(),
-                    "status", "conflict"
-            ));
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(SeatActionResponse.failure("conflict", e.getMessage()));
         }
     }
 
     @PostMapping("/leave")
-    public ResponseEntity<?> leaveSeatScreen(
+    public ResponseEntity<SeatLeaveScreenResponse> leaveSeatScreen(
             @RequestParam Long concertId,
             @RequestParam Long scheduleId
     ) {
@@ -228,63 +199,25 @@ public class SeatController {
                 .getAuthentication()
                 .getPrincipal();
 
-        Long resolvedConcertId = seatRepository.findConcertIdByScheduleId(scheduleId)
-                .orElseThrow(() -> new EntityNotFoundException("스케줄이 존재하지 않습니다. ID: " + scheduleId));
-        if (!resolvedConcertId.equals(concertId)) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "message", "콘서트/회차 정보가 일치하지 않습니다.",
-                    "status", "bad_request"
+        try {
+            SeatReservationService.LeaveSeatScreenResult result = seatReservationService.leaveSeatScreen(
+                    concertId,
+                    scheduleId,
+                    userId
+            );
+            return ResponseEntity.ok(SeatLeaveScreenResponse.success(
+                    result.releasedSeatCount(),
+                    result.activeDecremented(),
+                    result.activeCount()
             ));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(SeatLeaveScreenResponse.badRequest(e.getMessage()));
         }
-
-        int releasedSeatCount = seatReservationService.releaseAllSeatHolds(scheduleId, userId);
-
-        String accessKey = RedisKeyGenerator.seatAccessKey(userId, concertId, scheduleId);
-        String accessByScheduleKey = RedisKeyGenerator.seatAccessByScheduleKey(userId, scheduleId);
-        boolean hadAccess = Boolean.TRUE.equals(redisTemplate.hasKey(accessKey));
-
-        redisTemplate.delete(accessKey);
-        redisTemplate.delete(accessByScheduleKey);
-        redisTemplate.opsForSet().remove(
-                RedisKeyGenerator.seatAccessIndexKey(concertId, scheduleId),
-                String.valueOf(userId)
-        );
-
-        Long active = null;
-        if (hadAccess) {
-            active = redisLockRepository.decrementSeatActiveFloorZero(concertId, scheduleId);
-        }
-
-        return ResponseEntity.ok(Map.of(
-                "status", "success",
-                "releasedSeatCount", releasedSeatCount,
-                "activeDecremented", hadAccess,
-                "activeCount", active == null ? -1L : active
-        ));
-    }
-
-    private Long resolveSeatId(SeatSelectRequest requestDto) {
-        Seat seat = seatRepository
-                .findByScheduleIdAndSectionAndRowNumberAndSeatNumber(
-                        requestDto.getScheduleId(),
-                        requestDto.getSection(),
-                        requestDto.getRowNumber(),
-                        requestDto.getSeatNumber()
-                )
-                .orElseThrow(() -> new EntityNotFoundException(
-                        "좌석이 존재하지 않습니다. section=%s, row=%d, seat=%d".formatted(
-                                requestDto.getSection(),
-                                requestDto.getRowNumber(),
-                                requestDto.getSeatNumber()
-                        )
-                ));
-
-        return seat.getId();
     }
 
     // 대기열에서 입장 허용된 사용자만 접근 가능한 엔드포인트
     @GetMapping("/seats")
-    public ResponseEntity<?> enterSeat(
+    public ResponseEntity<SeatEnterResponse> enterSeat(
                 @RequestParam("token") String token,
                 @RequestParam("concertId") Long concertId,
                 @RequestParam("scheduleId") Long scheduleId
@@ -294,12 +227,12 @@ public class SeatController {
 
         if (tokenPayload == null) {
                 return ResponseEntity.status(403)
-                        .body("유효하지 않은 접근");
+                        .body(SeatEnterResponse.forbidden("유효하지 않은 접근"));
         }
 
         String[] parts = tokenPayload.split(":");
         if (parts.length != 2 && parts.length != 3) {
-            return ResponseEntity.status(403).body("토큰 형식 오류");
+            return ResponseEntity.status(403).body(SeatEnterResponse.forbidden("토큰 형식 오류"));
         }
 
         Long tokenConcertId;
@@ -310,14 +243,14 @@ public class SeatController {
                 tokenScheduleId = Long.parseLong(parts[2]);
             }
         } catch (NumberFormatException e) {
-            return ResponseEntity.status(403).body("토큰 형식 오류");
+            return ResponseEntity.status(403).body(SeatEnterResponse.forbidden("토큰 형식 오류"));
         }
 
         if (!concertId.equals(tokenConcertId)) {
-            return ResponseEntity.status(403).body("콘서트 정보 불일치");
+            return ResponseEntity.status(403).body(SeatEnterResponse.forbidden("콘서트 정보 불일치"));
         }
         if (tokenScheduleId != null && !scheduleId.equals(tokenScheduleId)) {
-            return ResponseEntity.status(403).body("회차 정보 불일치");
+            return ResponseEntity.status(403).body(SeatEnterResponse.forbidden("회차 정보 불일치"));
         }
 
         Long userId = Long.parseLong(parts[0]);
@@ -336,6 +269,6 @@ public class SeatController {
                 String.valueOf(userId)
         );
 
-        return ResponseEntity.ok("좌석 선택 화면 입장 성공");
+        return ResponseEntity.ok(SeatEnterResponse.success("좌석 선택 화면 입장 성공"));
         }
 }

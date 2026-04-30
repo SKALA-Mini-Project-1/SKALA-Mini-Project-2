@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { AlertTriangle, Clock, Info, Loader2 } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { buildApiUrl } from '../services/api';
 
 const emit = defineEmits<{
   queueComplete: [];
@@ -15,7 +16,6 @@ const position = ref(0);
 const progress = ref(0);
 const isSurge = ref(false);
 const hasLeftQueue = ref(false);
-const API_BASE_URL = ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '').replace(/\/$/, '');
 const nullRankStreak = ref(0);
 const requeueInFlight = ref(false);
 
@@ -46,7 +46,7 @@ const buildQueueUrl = (path: 'start' | 'status' | 'leave') => {
   if (scheduleIdValue.value !== null) {
     params.set('scheduleId', String(scheduleIdValue.value));
   }
-  return `${API_BASE_URL}/api/ticketing/${path}?${params.toString()}`;
+  return buildApiUrl(`/api/ticketing/${path}?${params.toString()}`);
 };
 
 const buildSeatEntryUrl = (entryToken: string) => {
@@ -58,7 +58,7 @@ const buildSeatEntryUrl = (entryToken: string) => {
   if (scheduleIdValue.value !== null) {
     params.set('scheduleId', String(scheduleIdValue.value));
   }
-  return `${API_BASE_URL}/api/seats/seats?${params.toString()}`;
+  return buildApiUrl(`/api/seats/seats?${params.toString()}`);
 };
 
 async function leaveQueue() {

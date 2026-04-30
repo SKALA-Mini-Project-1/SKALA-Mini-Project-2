@@ -20,6 +20,7 @@ services:
       - "6379:6379"
 
   user-auth-service:
+    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
     image: team4-user-auth-service
     build:
       context: .
@@ -31,6 +32,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_SECRET: your-secret-key-min-32-characters-long-for-hs256-algorithm-security
+      USER_AUTH_INTERNAL_API_TOKEN: dev-user-auth-internal-token
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-no-reply@example.com}
@@ -42,6 +44,7 @@ services:
       - "18081:8080"
 
   concert-service:
+    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
     image: team4-concert-service
     build:
       context: .
@@ -53,6 +56,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_SECRET: your-secret-key-min-32-characters-long-for-hs256-algorithm-security
+      CONCERT_INTERNAL_API_TOKEN: dev-concert-internal-token
     depends_on:
       - postgres
       - redis
@@ -60,6 +64,7 @@ services:
       - "18082:8080"
 
   queue-service:
+    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
     image: team4-queue-service
     build:
       context: .
@@ -72,6 +77,9 @@ services:
       REDIS_PORT: 6379
       JWT_SECRET: your-secret-key-min-32-characters-long-for-hs256-algorithm-security
       USER_AUTH_SERVICE_BASE_URL: http://user-auth-service:8080
+      CONCERT_SERVICE_BASE_URL: http://concert-service:8080
+      USER_AUTH_INTERNAL_API_TOKEN: dev-user-auth-internal-token
+      CONCERT_INTERNAL_API_TOKEN: dev-concert-internal-token
     depends_on:
       - postgres
       - redis
@@ -79,6 +87,7 @@ services:
       - "18083:8080"
 
   ticketing-service:
+    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
     image: team4-ticketing-service
     build:
       context: .
@@ -91,6 +100,8 @@ services:
       REDIS_PORT: 6379
       JWT_SECRET: your-secret-key-min-32-characters-long-for-hs256-algorithm-security
       USER_AUTH_SERVICE_BASE_URL: http://user-auth-service:8080
+      USER_AUTH_INTERNAL_API_TOKEN: dev-user-auth-internal-token
+      TICKETING_INTERNAL_API_TOKEN: dev-ticketing-internal-token
     depends_on:
       - postgres
       - redis
@@ -98,6 +109,7 @@ services:
       - "18084:8080"
 
   payment-service:
+    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
     image: team4-payment-service
     build:
       context: .
@@ -112,25 +124,16 @@ services:
       TOSS_SECRET_KEY: ${TOSS_SECRET_KEY:-}
       TOSS_API_BASE: ${TOSS_API_BASE:-https://api.tosspayments.com}
       TOSS_CONFIRM_URL: ${TOSS_CONFIRM_URL:-https://api.tosspayments.com/v1/payments/confirm}
+      TICKETING_SERVICE_BASE_URL: http://ticketing-service:8080
+      TICKETING_INTERNAL_API_TOKEN: dev-ticketing-internal-token
+      PAYMENT_SUCCESS_REDIRECT_URL: http://localhost:5173/payments/success
+      PAYMENT_FAIL_REDIRECT_URL: http://localhost:5173/payments/fail
+      PAYMENT_OPS_API_TOKEN: dev-payment-ops-token
     depends_on:
       - postgres
       - redis
     ports:
       - "18085:8080"
-
-  gateway:
-    image: nginx:latest
-    container_name: skala-gateway
-    volumes:
-      - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - user-auth-service
-      - concert-service
-      - queue-service
-      - ticketing-service
-      - payment-service
-    ports:
-      - "8080:80"
 
   frontend:
     image: team4-frontend
@@ -138,9 +141,17 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     environment:
-      VITE_API_BASE_URL: http://localhost:8080
+      VITE_USER_AUTH_API_URL: http://user-auth-service:8080
+      VITE_CONCERT_API_URL: http://concert-service:8080
+      VITE_QUEUE_API_URL: http://queue-service:8080
+      VITE_TICKETING_API_URL: http://ticketing-service:8080
+      VITE_PAYMENT_API_URL: http://payment-service:8080
     depends_on:
-      - gateway
+      - user-auth-service
+      - concert-service
+      - queue-service
+      - ticketing-service
+      - payment-service
     ports:
       - "5173:5173"
 

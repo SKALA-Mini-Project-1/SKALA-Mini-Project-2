@@ -24,11 +24,38 @@ public class PaymentEvent {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "event_id", nullable = false, unique = true, columnDefinition = "uuid")
+    private UUID eventId;
+
     @Column(name = "payment_id", nullable = false, columnDefinition = "uuid")
     private UUID paymentId;
 
     @Column(name = "event_type", nullable = false, length = 40)
     private String eventType;
+
+    @Column(name = "event_version", nullable = false, length = 20)
+    private String eventVersion;
+
+    @Column(name = "producer", nullable = false, length = 60)
+    private String producer;
+
+    @Column(name = "aggregate_type", nullable = false, length = 40)
+    private String aggregateType;
+
+    @Column(name = "aggregate_id", nullable = false, length = 100)
+    private String aggregateId;
+
+    @Column(name = "ordering_key", length = 100)
+    private String orderingKey;
+
+    @Column(name = "correlation_id", length = 100)
+    private String correlationId;
+
+    @Column(name = "causation_id", length = 100)
+    private String causationId;
+
+    @Column(name = "trace_id", length = 100)
+    private String traceId;
 
     @Column(name = "from_status", length = 20)
     private String fromStatus;
@@ -45,6 +72,9 @@ public class PaymentEvent {
     @Column(name = "payload_json", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
     private String payloadJson;
+
+    @Column(name = "occurred_at")
+    private OffsetDateTime occurredAt;
 
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
