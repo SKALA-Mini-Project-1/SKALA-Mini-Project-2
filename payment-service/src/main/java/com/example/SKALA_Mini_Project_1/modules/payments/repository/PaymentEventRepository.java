@@ -12,6 +12,7 @@ public interface PaymentEventRepository extends JpaRepository<PaymentEvent, Long
     long countByEventType(String eventType);
     boolean existsByEventId(java.util.UUID eventId);
     boolean existsByPaymentIdAndEventTypeAndPgEventId(java.util.UUID paymentId, String eventType, String pgEventId);
+    boolean existsByPaymentIdAndEventType(java.util.UUID paymentId, String eventType);
     java.util.List<PaymentEvent> findTop100ByEventTypeStartingWithOrderByCreatedAtDesc(String prefix);
 
     java.util.List<PaymentEvent> findTop50ByPublishStatusOrderByCreatedAtAsc(String publishStatus);
@@ -23,7 +24,7 @@ public interface PaymentEventRepository extends JpaRepository<PaymentEvent, Long
     @Query(
             value = """
                     SELECT GREATEST(COUNT(*) - COUNT(DISTINCT payment_id), 0)
-                    FROM payment_events
+                    FROM payment.payment_events
                     WHERE event_type = 'WEBHOOK_DONE_RECEIVED'
                     """,
             nativeQuery = true

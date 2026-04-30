@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import { getToken } from "../services/auth";
 import { buildApiUrl } from "../services/api";
+import { clearActivePaymentSession } from "../services/paymentSession";
 
 const emit = defineEmits<{
   navigate: [path: string];
@@ -37,6 +38,7 @@ async function confirmPayment(paymentKey: string, orderId: string, amount: numbe
 }
 
 onMounted(async () => {
+  clearActivePaymentSession();
   const params = new URLSearchParams(window.location.search);
   const paymentKey = params.get("paymentKey") ?? "";
   const orderId = params.get("orderId") ?? "";

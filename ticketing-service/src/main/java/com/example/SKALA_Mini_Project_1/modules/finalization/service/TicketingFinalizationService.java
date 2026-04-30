@@ -84,19 +84,17 @@ public class TicketingFinalizationService {
             );
         }
 
-        boolean holdValid = isHoldValid(context);
-        if (!holdValid) {
-            return response(
-                    "INVALID_HOLD",
-                    booking,
-                    context,
-                    false,
-                    null,
+        HoldValidationResult holdValidation = validateHold(context);
+        if (!holdValidation.valid()) {
+            log.warn(
+                    "Proceeding booking confirmation with expired or missing Redis hold. bookingId={}, paymentId={}, userId={}, concertId={}, scheduleId={}, seatIds={}, details={}",
+                    booking.getId(),
                     request.paymentId(),
-                    request.pgOrderId(),
-                    request.pgPaymentKey(),
-                    request.amount(),
-                    processedAt
+                    booking.getUserId(),
+                    context.concertId(),
+                    context.scheduleId(),
+                    context.seatIds(),
+                    holdValidation.details()
             );
         }
 
@@ -112,7 +110,7 @@ public class TicketingFinalizationService {
                 "CONFIRMED",
                 booking,
                 context,
-                true,
+                holdValidation.valid(),
                 null,
                 request.paymentId(),
                 request.pgOrderId(),
@@ -238,20 +236,21 @@ public class TicketingFinalizationService {
         );
     }
 
-    private boolean isHoldValid(BookingContext context) {
+    private HoldValidationResult validateHold(BookingContext context) {
         if (context.scheduleId() == null || context.userId() == null) {
-            return false;
+            return new HoldValidationResult(false, List.of("scheduleId or userId is null"));
         }
 
         String expectedOwner = String.valueOf(context.userId());
+        List<String> invalidSeats = new java.util.ArrayList<>();
         for (Long seatId : context.seatIds()) {
             String owner = redisLockRepository.getSeatOwner(context.concertId(), context.scheduleId(), seatId);
             Long ttl = redisLockRepository.getSeatLockTtlSeconds(context.concertId(), context.scheduleId(), seatId);
             if (!expectedOwner.equals(owner) || ttl == null || ttl <= 0) {
-                return false;
+                invalidSeats.add("seatId=" + seatId + ",owner=" + owner + ",ttl=" + ttl);
             }
         }
-        return true;
+        return new HoldValidationResult(invalidSeats.isEmpty(), invalidSeats);
     }
 
     private OffsetDateTime resolveTime(OffsetDateTime requestedAt) {
@@ -342,6 +341,12 @@ public class TicketingFinalizationService {
             Long scheduleId,
             Long userId,
             List<Long> seatIds
+    ) {
+    }
+
+    private record HoldValidationResult(
+            boolean valid,
+            List<String> details
     ) {
     }
 }

@@ -37,9 +37,9 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
                     SELECT c.title AS concertTitle,
                            c.location AS concertVenue,
                            s.start_time AS showTime
-                    FROM bookings b
-                    JOIN schedules s ON s.id = b.schedule_id
-                    JOIN concerts c ON c.id = s.concert_id
+                    FROM ticketing.bookings b
+                    JOIN concert.schedules s ON s.id = b.schedule_id
+                    JOIN concert.concerts c ON c.id = s.concert_id
                     WHERE b.id = :bookingId
             """,
             nativeQuery = true
@@ -49,8 +49,8 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     @Query(
             value = """
                     SELECT s.concert_id
-                    FROM bookings b
-                    JOIN schedules s ON s.id = b.schedule_id
+                    FROM ticketing.bookings b
+                    JOIN concert.schedules s ON s.id = b.schedule_id
                     WHERE b.id = :bookingId
                     """,
             nativeQuery = true

@@ -1,15 +1,16 @@
 package com.example.SKALA_Mini_Project_1.modules.payments.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
-
 import org.springframework.stereotype.Component;
-
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.Payment;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.PaymentEvent;
 import com.example.SKALA_Mini_Project_1.modules.payments.repository.PaymentEventRepository;
-
 import lombok.RequiredArgsConstructor;
 
 @Component
@@ -17,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 public class PaymentEventRecorder {
 
     private final PaymentEventRepository paymentEventRepository;
+    private final ObjectMapper objectMapper;
 
     public void record(
             Payment payment,
@@ -24,6 +26,21 @@ public class PaymentEventRecorder {
             String fromStatus,
             String toStatus,
             String extraInfo,
+            String pgEventId
+    ) {
+        Map<String, Object> metadata = null;
+        if (extraInfo != null && !extraInfo.isBlank()) {
+            metadata = Map.of("extra", extraInfo);
+        }
+        recordWithMetadata(payment, eventType, fromStatus, toStatus, metadata, pgEventId);
+    }
+
+    public void recordWithMetadata(
+            Payment payment,
+            String eventType,
+            String fromStatus,
+            String toStatus,
+            Map<String, Object> metadata,
             String pgEventId
     ) {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -44,7 +61,7 @@ public class PaymentEventRecorder {
         ev.setToStatus(toStatus);
         ev.setIdempotencyKey(payment.getIdempotencyKey());
         ev.setPgEventId(pgEventId);
-        ev.setPayloadJson(buildPayloadJson(payment, extraInfo));
+        ev.setPayloadJson(buildPayloadJson(payment, metadata));
         ev.setOccurredAt(now);
         ev.setCreatedAt(now);
         ev.setPublishStatus("PENDING");
@@ -52,17 +69,24 @@ public class PaymentEventRecorder {
         paymentEventRepository.save(ev);
     }
 
-    private String buildPayloadJson(Payment payment, String extraInfo) {
-        StringBuilder sb = new StringBuilder("{");
-        sb.append("\"bookingId\":\"").append(safe(payment.getBookingId())).append("\"");
-        sb.append(",\"amount\":").append(payment.getAmount() != null ? payment.getAmount() : 0);
-        sb.append(",\"pgOrderId\":\"").append(safe(payment.getPgOrderId())).append("\"");
-        sb.append(",\"pgPaymentKey\":\"").append(safe(payment.getPgPaymentKey())).append("\"");
-        if (extraInfo != null && !extraInfo.isBlank()) {
-            sb.append(",\"extra\":\"").append(extraInfo.replace("\"", "\\\"")).append("\"");
+    private String buildPayloadJson(Payment payment, Map<String, Object> metadata) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("bookingId", safe(payment.getBookingId()));
+        payload.put("amount", payment.getAmount() != null ? payment.getAmount() : 0);
+        payload.put("pgOrderId", safe(payment.getPgOrderId()));
+        payload.put("pgPaymentKey", safe(payment.getPgPaymentKey()));
+        if (metadata != null && !metadata.isEmpty()) {
+            for (Map.Entry<String, Object> entry : metadata.entrySet()) {
+                if (entry.getValue() != null) {
+                    payload.put(entry.getKey(), entry.getValue());
+                }
+            }
         }
-        sb.append("}");
-        return sb.toString();
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialize payment event payload", e);
+        }
     }
 
     private String safe(Object value) {

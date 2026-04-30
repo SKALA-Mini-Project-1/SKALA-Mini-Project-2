@@ -54,6 +54,12 @@ public class BookingService {
             throw new IllegalArgumentException("유효하지 않은 좌석이 포함되어 있습니다.");
         }
 
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        List<Long> conflictSeatIds = bookingItemRepository.findActiveConflictSeatIds(new ArrayList<>(uniqueSeatIds), now);
+        if (!conflictSeatIds.isEmpty()) {
+            throw new IllegalStateException("이미 진행 중이거나 확정된 예약 좌석이 포함되어 있습니다: " + conflictSeatIds);
+        }
+
         Set<Long> scheduleIds = new HashSet<>();
         List<Long> notHoldByMeSeatIds = new ArrayList<>();
         List<Long> reservedSeatIds = new ArrayList<>();
@@ -100,7 +106,6 @@ public class BookingService {
             throw new IllegalStateException("좌석 선점이 만료되었습니다. 다시 선택해주세요.");
         }
 
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         OffsetDateTime expiresAt = now.plusSeconds(minTtlSeconds);
 
         Booking booking = new Booking();

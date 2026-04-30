@@ -18,8 +18,8 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     @Query(
             value = """
                     SELECT COALESCE(SUM(s.price), 0)
-                    FROM booking_items bi
-                    JOIN seats s ON s.id = bi.seat_id
+                    FROM ticketing.booking_items bi
+                    JOIN concert.seats s ON s.id = bi.seat_id
                     WHERE bi.booking_id = :bookingId
                     """,
             nativeQuery = true
@@ -29,8 +29,8 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     @Query(
             value = """
                     SELECT s.id, s.section, s.row_number, s.seat_number, s.status, s.grade, s.price
-                    FROM seats s
-                    JOIN schedules sc ON sc.id = s.schedule_id
+                    FROM concert.seats s
+                    JOIN concert.schedules sc ON sc.id = s.schedule_id
                     WHERE sc.concert_id = :concertId
                     ORDER BY s.section, s.row_number, s.seat_number
             """,
@@ -41,7 +41,7 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     @Query(
             value = """
                     SELECT s.id, s.section, s.row_number, s.seat_number, s.status, s.grade, s.price
-                    FROM seats s
+                    FROM concert.seats s
                     WHERE s.schedule_id = :scheduleId
                     ORDER BY s.section, s.row_number, s.seat_number
             """,
@@ -52,7 +52,7 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     @Query(
             value = """
                     SELECT sc.concert_id
-                    FROM schedules sc
+                    FROM concert.schedules sc
                     WHERE sc.id = :scheduleId
             """,
             nativeQuery = true
@@ -62,8 +62,8 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     @Query(
             value = """
                     SELECT s.*
-                    FROM seats s
-                    JOIN schedules sc ON sc.id = s.schedule_id
+                    FROM concert.seats s
+                    JOIN concert.schedules sc ON sc.id = s.schedule_id
                     WHERE s.id = :seatId
                       AND sc.concert_id = :concertId
             """,
@@ -74,7 +74,7 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     @Query(
             value = """
                     SELECT s.*
-                    FROM seats s
+                    FROM concert.seats s
                     WHERE s.id = :seatId
                       AND s.schedule_id = :scheduleId
             """,
@@ -85,8 +85,8 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     @Query(
             value = """
                     SELECT s.*
-                    FROM seats s
-                    JOIN schedules sc ON sc.id = s.schedule_id
+                    FROM concert.seats s
+                    JOIN concert.schedules sc ON sc.id = s.schedule_id
                     WHERE sc.concert_id = :concertId
                       AND s.section = :section
                       AND s.row_number = :rowNumber
@@ -104,7 +104,7 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     @Query(
             value = """
                     SELECT s.*
-                    FROM seats s
+                    FROM concert.seats s
                     WHERE s.schedule_id = :scheduleId
                       AND s.section = :section
                       AND s.row_number = :rowNumber
@@ -122,8 +122,8 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     @Query(
             value = """
                     SELECT s.*
-                    FROM seats s
-                    JOIN schedules sc ON sc.id = s.schedule_id
+                    FROM concert.seats s
+                    JOIN concert.schedules sc ON sc.id = s.schedule_id
                     WHERE s.id = :seatId
                       AND sc.concert_id = :concertId
                       AND s.schedule_id = :scheduleId
@@ -145,8 +145,8 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
                            s.price AS price,
                            s.status AS status,
                            s.schedule_id AS scheduleId
-                    FROM seats s
-                    JOIN schedules sc ON sc.id = s.schedule_id
+                    FROM concert.seats s
+                    JOIN concert.schedules sc ON sc.id = s.schedule_id
                     WHERE sc.concert_id = :concertId
                       AND s.id IN (:seatIds)
             """,
@@ -157,12 +157,12 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(
             value = """
-                    UPDATE seats s
+                    UPDATE concert.seats s
                     SET status = 'RESERVED',
                         version = version + 1
                     WHERE s.id IN (
                         SELECT bi.seat_id
-                        FROM booking_items bi
+                        FROM ticketing.booking_items bi
                         WHERE bi.booking_id = :bookingId
                     )
                       AND s.status <> 'RESERVED'
@@ -174,15 +174,15 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(
             value = """
-                    UPDATE seats s
+                    UPDATE concert.seats s
                     SET status = 'AVAILABLE',
                         version = version + 1
                     WHERE s.id IN (
                         SELECT bi.seat_id
-                        FROM booking_items bi
+                        FROM ticketing.booking_items bi
                         WHERE bi.booking_id = :bookingId
                     )
-                      AND s.status <> 'RESERVED'
+                      AND s.status <> 'AVAILABLE'
                     """,
             nativeQuery = true
     )
@@ -191,8 +191,8 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     @Query(
             value = """
                     SELECT COUNT(*)
-                    FROM seats s
-                    JOIN booking_items bi ON bi.seat_id = s.id
+                    FROM concert.seats s
+                    JOIN ticketing.booking_items bi ON bi.seat_id = s.id
                     WHERE bi.booking_id = :bookingId
                       AND s.status <> :expectedStatus
                     """,

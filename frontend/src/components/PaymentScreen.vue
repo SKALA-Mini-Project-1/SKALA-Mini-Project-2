@@ -2,9 +2,10 @@
 import { ANONYMOUS, loadTossPayments } from '@tosspayments/tosspayments-sdk';
 import { Loader2 } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import { createPayment, submitPayment } from '../data/payments';
+import { cancelPayment, createPayment, sendPaymentExitSignal, submitPayment } from '../data/payments';
 import { apiRequest, ApiError } from '../services/api';
 import { getAuthUser, getToken } from '../services/auth';
+import { clearActivePaymentSession, getActivePaymentSession, setActivePaymentSession } from '../services/paymentSession';
 import { leaveSeatScreen } from '../services/seat';
 import type { BookingData } from '../types';
 
@@ -12,10 +13,15 @@ const props = defineProps<{
   bookingData: BookingData;
 }>();
 
+const emit = defineEmits<{
+  navigate: [path: string];
+}>();
+
 const isProcessing = ref(false);
 const paymentMethod = ref('card');
 const skipLeaveCleanup = ref(false);
 const hasSentLeave = ref(false);
+const hasHandledPaymentExit = ref(false);
 const agreements = reactive({
   all: false,
   terms: false,
@@ -26,6 +32,7 @@ const manualBookingId = ref('');
 const payerName = ref('');
 const payerPhone = ref('');
 const payerEmail = ref('');
+const activePaymentId = ref<string | null>(null);
 watch(
   () => props.bookingData.bookingId,
   (bookingId) => {
@@ -123,7 +130,7 @@ const isUuid = (value: string) =>
 const totalAmount = computed(() => props.bookingData.seats.reduce((sum, seat) => sum + seat.price, 0));
 
 const leaveSeatOnExit = async () => {
-  if (skipLeaveCleanup.value || hasSentLeave.value) {
+  if (hasSentLeave.value) {
     return;
   }
   const concertId = Number(props.bookingData.concertId);
@@ -138,6 +145,63 @@ const leaveSeatOnExit = async () => {
   } catch (error) {
     console.error('결제 화면 이탈 처리 실패', error);
   }
+};
+
+const resolveActivePaymentId = () => activePaymentId.value ?? getActivePaymentSession()?.paymentId ?? null;
+
+const buildExitPayload = (reasonCode: string, source: string, clientRoute = window.location.pathname) => ({
+  reasonCode,
+  source,
+  clientRoute
+});
+
+const triggerKeepaliveExitRequests = (reasonCode: string, source: string) => {
+  const paymentId = resolveActivePaymentId();
+  const token = getToken();
+  if (!paymentId || !token) {
+    return;
+  }
+
+  const payload = buildExitPayload(reasonCode, source);
+  void sendPaymentExitSignal(paymentId, token, payload, true).catch(() => undefined);
+  void cancelPayment(paymentId, token, payload, true).catch(() => undefined);
+};
+
+const handlePageHide = () => {
+  void handlePaymentExit('PAGEHIDE', 'BROWSER_PAGEHIDE', true);
+};
+
+const handlePaymentExit = async (reasonCode: string, source: string, keepalive = false) => {
+  if (skipLeaveCleanup.value || hasHandledPaymentExit.value) {
+    return;
+  }
+
+  hasHandledPaymentExit.value = true;
+
+  const paymentId = resolveActivePaymentId();
+  const token = getToken();
+  const payload = buildExitPayload(reasonCode, source);
+
+  if (paymentId && token) {
+    if (keepalive) {
+      triggerKeepaliveExitRequests(reasonCode, source);
+    } else {
+      try {
+        await sendPaymentExitSignal(paymentId, token, payload);
+      } catch (error) {
+        console.warn('[PaymentScreen] payment exit signal failed', error);
+      }
+
+      try {
+        await cancelPayment(paymentId, token, payload);
+        clearActivePaymentSession();
+      } catch (error) {
+        console.warn('[PaymentScreen] payment cancel best-effort failed', error);
+      }
+    }
+  }
+
+  await leaveSeatOnExit();
 };
 
 const updateAllFlag = () => {
@@ -191,6 +255,11 @@ const handlePayment = async () => {
     }
 
     const created = await createPayment({ bookingId, userId: authUser.userId }, token);
+    activePaymentId.value = created.paymentId;
+    setActivePaymentSession({
+      paymentId: created.paymentId,
+      bookingId
+    });
     const submitted = await submitPayment(created.paymentId, token);
 
     const amount = submitted.amount;
@@ -203,6 +272,7 @@ const handlePayment = async () => {
 
     const customerKey = submitted.customerKey ?? `USER_${authUser.userId}` ?? ANONYMOUS;
     const payment = tossPayments.payment({ customerKey });
+    skipLeaveCleanup.value = true;
 
     if (paymentMethod.value === 'vbank') {
       await payment.requestPayment({
@@ -244,16 +314,34 @@ const handlePayment = async () => {
   }
 };
 
+const handleCancelPayment = async () => {
+  if (isProcessing.value) {
+    return;
+  }
+
+  isProcessing.value = true;
+  try {
+    await handlePaymentExit('USER_CANCEL_BUTTON', 'PAYMENT_SCREEN_CANCEL');
+    clearActivePaymentSession();
+    activePaymentId.value = null;
+    emit('navigate', '/concert/seat');
+  } finally {
+    isProcessing.value = false;
+  }
+};
+
 onMounted(() => {
   skipLeaveCleanup.value = false;
   hasSentLeave.value = false;
-  window.addEventListener('pagehide', leaveSeatOnExit);
+  hasHandledPaymentExit.value = false;
+  activePaymentId.value = getActivePaymentSession()?.paymentId ?? null;
+  window.addEventListener('pagehide', handlePageHide);
   void loadPayerInfo();
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener('pagehide', leaveSeatOnExit);
-  void leaveSeatOnExit();
+  window.removeEventListener('pagehide', handlePageHide);
+  void handlePaymentExit('COMPONENT_UNMOUNT', 'PAYMENT_SCREEN_UNMOUNT');
 });
 </script>
 
@@ -381,6 +469,14 @@ onBeforeUnmount(() => {
             @click="handlePayment"
           >
             <span>{{ totalAmount.toLocaleString() }}원 결제하기</span>
+          </button>
+          <button
+            type="button"
+            class="mt-3 w-full rounded-sm border border-[#cfd8e3] py-3 text-sm font-bold text-[#35516f] transition-colors hover:bg-[#f5f8fc]"
+            :disabled="isProcessing"
+            @click="handleCancelPayment"
+          >
+            결제 취소
           </button>
         </div>
       </div>

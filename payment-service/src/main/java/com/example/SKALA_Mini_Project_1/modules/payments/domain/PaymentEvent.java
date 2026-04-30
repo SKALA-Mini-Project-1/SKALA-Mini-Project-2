@@ -15,7 +15,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 @Entity
-@Table(name = "payment_events")
+@Table(name = "payment_events", schema = "payment")
 @Getter
 @Setter
 public class PaymentEvent {

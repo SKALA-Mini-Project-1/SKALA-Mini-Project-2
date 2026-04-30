@@ -4,12 +4,13 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ApiError } from '../services/api';
 import { createBooking } from '../services/booking';
 import {
-  getSeatMap,
-  getSeatMapBySchedule,
+  getSeatSectionDetailBySchedule,
+  getSeatSectionSummaryBySchedule,
   holdSeat,
   holdSeatsBatch,
   leaveSeatScreen,
-  type SeatMapItem
+  type SeatMapItem,
+  type SeatSectionSummaryItem
 } from '../services/seat';
 import type { Seat } from '../types';
 
@@ -46,12 +47,16 @@ const hasShownExpiryWarning = ref(false);
 const holdingSeatMap = ref<Record<string, boolean>>({});
 const seatStatusMap = ref<Record<string, string>>({});
 const seatIdMap = ref<Record<string, number>>({});
-const isSeatMapLoading = ref(false);
+const sectionSummaryMap = ref<Record<string, SeatSectionSummaryItem>>({});
+const isSeatSummaryLoading = ref(false);
+const isSectionSeatsLoading = ref(false);
+const loadedSectionId = ref<string | null>(null);
 const shouldSkipLeaveOnUnmount = ref(false);
 const hasSentLeave = ref(false);
 let timer: ReturnType<typeof setInterval> | null = null;
 const concertId = computed(() => Number(props.concertId ?? 1));
 const scheduleId = computed(() => (props.scheduleId ? Number(props.scheduleId) : null));
+const isSeatMapLoading = computed(() => isSeatSummaryLoading.value || isSectionSeatsLoading.value);
 
 const leaveSeatOnExit = async () => {
   if (shouldSkipLeaveOnUnmount.value || hasSentLeave.value) {
@@ -71,7 +76,7 @@ const leaveSeatOnExit = async () => {
 
 const redirectToMain = () => {
   void leaveSeatOnExit();
-  window.location.href = 'http://localhost:5173/main';
+  window.location.href = '/main';
 };
 
 const centerX = 50;
@@ -157,7 +162,7 @@ const secondFloorSections = [
   )
 ];
 
-const sections: SectionMeta[] = [...floorSections, ...firstFloorSections, ...secondFloorSections];
+const baseSections: SectionMeta[] = [...floorSections, ...firstFloorSections, ...secondFloorSections];
 
 const toneClassMap: Record<SectionMeta['tone'], string> = {
   amber:   'border-2 border-amber-500 bg-amber-400 text-white hover:bg-amber-300 shadow-lg shadow-amber-200',
@@ -166,6 +171,63 @@ const toneClassMap: Record<SectionMeta['tone'], string> = {
   emerald: 'border-2 border-emerald-500 bg-emerald-400 text-white hover:bg-emerald-300',
   slate:   'border-2 border-slate-400 bg-slate-300 text-slate-900 hover:bg-slate-200'
 };
+
+const resolveSectionToneFromGrade = (grade?: string): SectionMeta['tone'] => {
+  if (grade === 'VIP') {
+    return 'amber';
+  }
+  if (grade === 'R') {
+    return 'violet';
+  }
+  if (grade === 'S') {
+    return 'sky';
+  }
+  return 'slate';
+};
+
+const buildDynamicSection = (summary: SeatSectionSummaryItem, index: number): SectionMeta => ({
+  id: summary.section,
+  x: 16 + (index % 6) * 13.5,
+  y: 22 + Math.floor(index / 6) * 12.5,
+  angle: 0,
+  floor: 'FLOOR',
+  grade: summary.grade,
+  price: summary.price,
+  tone: resolveSectionToneFromGrade(summary.grade),
+  totalSeats: summary.seatCount,
+  rows: summary.rowCount,
+  cols: summary.colCount
+});
+
+const sections = computed(() => {
+  const summaries = Object.values(sectionSummaryMap.value);
+  if (summaries.length === 0) {
+    return baseSections;
+  }
+
+  const summaryById = sectionSummaryMap.value;
+  const mergedKnownSections = baseSections
+    .filter((section) => Boolean(summaryById[section.id]))
+    .map((section) => {
+      const summary = summaryById[section.id];
+      return {
+        ...section,
+        grade: summary.grade || section.grade,
+        price: summary.price ?? section.price,
+        totalSeats: summary.seatCount ?? section.totalSeats,
+        rows: summary.rowCount ?? section.rows,
+        cols: summary.colCount ?? section.cols,
+        tone: resolveSectionToneFromGrade(summary.grade || section.grade)
+      };
+    });
+
+  const knownSectionIds = new Set(baseSections.map((section) => section.id));
+  const dynamicSections = summaries
+    .filter((summary) => !knownSectionIds.has(summary.section))
+    .map((summary, index) => buildDynamicSection(summary, index));
+
+  return [...mergedKnownSections, ...dynamicSections];
+});
 
 onMounted(() => {
   shouldSkipLeaveOnUnmount.value = false;
@@ -189,7 +251,7 @@ onMounted(() => {
     timeLeft.value -= 1;
   }, 1000);
 
-  void loadSeatMap();
+  void loadSeatSummary();
   window.addEventListener('pagehide', leaveSeatOnExit);
 });
 
@@ -208,44 +270,69 @@ const formatTime = (seconds: number) => {
 };
 
 const buildSeatKey = (section: string, row: number, col: number) => `${section}-${row}-${col}`;
+const getEffectiveSeatStatus = (seat: Pick<SeatMapItem, 'status' | 'displayStatus'>) => seat.displayStatus ?? seat.status;
+const isSeatBlocked = (status?: string) => status === 'RESERVED' || status === 'HELD_BY_OTHER';
 
-const loadSeatMap = async () => {
-  isSeatMapLoading.value = true;
+const applySeatAccessTtl = (seatAccessTtlSeconds?: number) => {
+  const serverTtl = Math.floor(Number(seatAccessTtlSeconds ?? 0));
+  if (Number.isFinite(serverTtl) && serverTtl > 0) {
+    initialTimeLeft.value = serverTtl;
+    timeLeft.value = serverTtl;
+    hasShownExpiryWarning.value = false;
+    showExpiryWarningModal.value = false;
+  }
+};
+
+const loadSeatSummary = async () => {
+  if (!scheduleId.value) {
+    return;
+  }
+
+  isSeatSummaryLoading.value = true;
   try {
-    const response = scheduleId.value
-      ? await getSeatMapBySchedule(scheduleId.value)
-      : await getSeatMap(concertId.value);
-    const nextStatusMap: Record<string, string> = {};
-    const nextSeatIdMap: Record<string, number> = {};
+    const response = await getSeatSectionSummaryBySchedule(scheduleId.value);
+    const nextSummaryMap = response.sections.reduce<Record<string, SeatSectionSummaryItem>>((acc, section) => {
+      acc[section.section] = section;
+      return acc;
+    }, {});
+
+    sectionSummaryMap.value = nextSummaryMap;
+    applySeatAccessTtl(response.seatAccessTtlSeconds);
+
+  } catch (error) {
+    console.error('좌석 구역 요약 조회 실패', error);
+  } finally {
+    isSeatSummaryLoading.value = false;
+  }
+};
+
+const loadSectionSeatMap = async (sectionId: string) => {
+  if (!scheduleId.value) {
+    return;
+  }
+
+  isSectionSeatsLoading.value = true;
+  try {
+    const response = await getSeatSectionDetailBySchedule(scheduleId.value, sectionId);
+    const nextStatusMap = { ...seatStatusMap.value };
+    const nextSeatIdMap = { ...seatIdMap.value };
 
     response.seats.forEach((seat: SeatMapItem) => {
       const key = buildSeatKey(seat.section, seat.rowNumber, seat.seatNumber);
-      nextStatusMap[key] = seat.status;
+      nextStatusMap[key] = getEffectiveSeatStatus(seat);
       nextSeatIdMap[key] = seat.seatId;
     });
 
     seatStatusMap.value = nextStatusMap;
     seatIdMap.value = nextSeatIdMap;
+    loadedSectionId.value = sectionId;
+    applySeatAccessTtl(response.seatAccessTtlSeconds);
 
-    const serverTtl = Math.floor(Number(response.seatAccessTtlSeconds ?? 0));
-    if (Number.isFinite(serverTtl) && serverTtl > 0) {
-      initialTimeLeft.value = serverTtl;
-      timeLeft.value = serverTtl;
-      hasShownExpiryWarning.value = false;
-      showExpiryWarningModal.value = false;
-    }
-
-    console.debug('[SeatSelection] seat map loaded', {
-      concertId: concertId.value,
-      scheduleId: scheduleId.value,
-      seatResponseCount: response.seats.length,
-      statusKeyCount: Object.keys(nextStatusMap).length,
-      seatIdKeyCount: Object.keys(nextSeatIdMap).length
-    });
   } catch (error) {
-    console.error('좌석 상태 조회 실패', error);
+    console.error('좌석 구역 상세 조회 실패', error);
+    alert(error instanceof Error ? error.message : '좌석 구역 정보를 불러오지 못했습니다.');
   } finally {
-    isSeatMapLoading.value = false;
+    isSectionSeatsLoading.value = false;
   }
 };
 
@@ -257,19 +344,22 @@ const totalAmount = computed(() => selectedSeats.value.reduce((sum, seat) => sum
 
 const currentSectionSeats = computed(() => {
   if (!selectedSection.value) {
-    return [] as Array<{ row: number; col: number; id: string; isOccupied: boolean; isSelected: boolean }>;
+    return [] as Array<{ row: number; col: number; id: string; status: string; isOccupied: boolean; isSelected: boolean }>;
+  }
+  if (loadedSectionId.value !== selectedSection.value.id) {
+    return [] as Array<{ row: number; col: number; id: string; status: string; isOccupied: boolean; isSelected: boolean }>;
   }
 
   const { id, rows, cols } = selectedSection.value;
-  const seats: Array<{ row: number; col: number; id: string; isOccupied: boolean; isSelected: boolean }> = [];
+  const seats: Array<{ row: number; col: number; id: string; status: string; isOccupied: boolean; isSelected: boolean }> = [];
 
   for (let row = 1; row <= rows; row += 1) {
     for (let col = 1; col <= cols; col += 1) {
       const seatId = buildSeatKey(id, row, col);
-      const status = seatStatusMap.value[seatId];
-      const isOccupied = status === 'RESERVED';
+      const status = seatStatusMap.value[seatId] ?? 'AVAILABLE';
+      const isOccupied = isSeatBlocked(status);
       const isSelected = selectedSeats.value.some((seat) => seat.id === seatId);
-      seats.push({ row, col, id: seatId, isOccupied, isSelected });
+      seats.push({ row, col, id: seatId, status, isOccupied, isSelected });
     }
   }
 
@@ -277,10 +367,10 @@ const currentSectionSeats = computed(() => {
 });
 
 const seatStateMap = computed(() => {
-  const map = new Map<string, { isOccupied: boolean; isSelected: boolean }>();
+  const map = new Map<string, { status: string; isOccupied: boolean; isSelected: boolean }>();
 
   currentSectionSeats.value.forEach((seat) => {
-    map.set(seat.id, { isOccupied: seat.isOccupied, isSelected: seat.isSelected });
+    map.set(seat.id, { status: seat.status, isOccupied: seat.isOccupied, isSelected: seat.isSelected });
   });
 
   return map;
@@ -288,10 +378,10 @@ const seatStateMap = computed(() => {
 
 const getSeatState = (row: number, col: number) => {
   if (!selectedSection.value) {
-    return { isOccupied: false, isSelected: false };
+    return { status: 'AVAILABLE', isOccupied: false, isSelected: false };
   }
 
-  return seatStateMap.value.get(`${selectedSection.value.id}-${row}-${col}`) ?? { isOccupied: false, isSelected: false };
+  return seatStateMap.value.get(`${selectedSection.value.id}-${row}-${col}`) ?? { status: 'AVAILABLE', isOccupied: false, isSelected: false };
 };
 
 const setHolding = (seatId: string, isHolding: boolean) => {
@@ -314,8 +404,12 @@ const addSelectedSeat = (seat: Seat) => {
   selectedSeats.value = [...selectedSeats.value, seat];
 };
 
-const goToSection = (section: SectionMeta) => {
+const goToSection = async (section: SectionMeta) => {
   selectedSection.value = section;
+  if (loadedSectionId.value === section.id) {
+    return;
+  }
+  await loadSectionSeatMap(section.id);
 };
 
 const resetSection = () => {
@@ -328,7 +422,7 @@ const toggleSeat = async (row: number, col: number) => {
   }
 
   const seatId = buildSeatKey(selectedSection.value.id, row, col);
-  const isOccupied = seatStatusMap.value[seatId] === 'RESERVED';
+  const isOccupied = isSeatBlocked(seatStatusMap.value[seatId]);
 
   if (isOccupied) {
     return;
@@ -375,6 +469,9 @@ const toggleSeat = async (row: number, col: number) => {
   } catch (error) {
     if (error instanceof ApiError && error.status === 409) {
       showConflictModal.value = true;
+      if (selectedSection.value) {
+        void loadSectionSeatMap(selectedSection.value.id);
+      }
       return;
     }
 
@@ -422,7 +519,7 @@ const removeSeat = async (seat: Seat) => {
 const gradeLegend = computed(() => {
   const map = new Map<string, { grade: string; price: number; tone: SectionMeta['tone'] }>();
 
-  sections.forEach((section) => {
+  sections.value.forEach((section) => {
     if (!map.has(section.grade)) {
       map.set(section.grade, {
         grade: section.grade,
@@ -435,7 +532,14 @@ const gradeLegend = computed(() => {
   return Array.from(map.values());
 });
 
-const totalVenueSeats = computed(() => sections.reduce((sum, section) => sum + section.totalSeats, 0));
+const totalVenueSeats = computed(() => {
+  const summarizedSeatCount = Object.values(sectionSummaryMap.value)
+    .reduce((sum, section) => sum + section.seatCount, 0);
+  if (summarizedSeatCount > 0) {
+    return summarizedSeatCount;
+  }
+  return sections.value.reduce((sum, section) => sum + section.totalSeats, 0);
+});
 
 const completeSeatSelection = async () => {
   if (isSeatMapLoading.value) {
@@ -466,14 +570,6 @@ const completeSeatSelection = async () => {
     .filter((seatId): seatId is number => Number.isFinite(seatId));
 
   const missingMappings = resolvedSeatMappings.filter((item) => !Number.isFinite(item.resolvedSeatId));
-
-  console.debug('[SeatSelection] complete selection mapping result', {
-    selectedSeatCount: selectedSeats.value.length,
-    mappedSeatIdCount: seatIds.length,
-    selectedSeatKeys: resolvedSeatMappings.map((item) => item.key),
-    missingSeatKeys: missingMappings.map((item) => item.key),
-    sampleSeatIdEntries: Object.entries(seatIdMap.value).slice(0, 20)
-  });
 
   if (seatIds.length !== selectedSeats.value.length) {
     console.error('[SeatSelection] seatId mapping failed', {
@@ -568,11 +664,16 @@ const completeSeatSelection = async () => {
                     ? 'h-[58px] w-[72px] rounded-lg text-xl'
                     : 'h-[52px] w-[65px] rounded-lg text-lg'
               ]"
+              :disabled="isSeatSummaryLoading"
               :style="{ left: `${section.x}%`, top: `${section.y}%` }"
               @click="goToSection(section)"
             >
               <span class="block text-center leading-none">{{ section.id }}</span>
             </button>
+          </div>
+
+          <div v-if="isSeatSummaryLoading" class="mt-4 rounded-lg border border-orange-200 bg-white px-4 py-3 text-center text-sm font-semibold text-orange-600 shadow-sm">
+            좌석 구역 정보를 불러오는 중입니다...
           </div>
 
           <!-- 총 좌석 수 -->
@@ -627,7 +728,13 @@ const completeSeatSelection = async () => {
           </div>
 
           <!-- 좌석 그리드 -->
-          <div class="space-y-1.5 sm:space-y-2">
+          <div v-if="isSectionSeatsLoading" class="rounded-xl border border-orange-100 bg-orange-50 px-4 py-12 text-center text-sm font-semibold text-orange-600">
+            {{ selectedSection.id }}구역 좌석 정보를 불러오는 중입니다...
+          </div>
+          <div v-else-if="currentSectionSeats.length === 0" class="rounded-xl border border-orange-100 bg-orange-50 px-4 py-12 text-center text-sm font-semibold text-orange-600">
+            {{ selectedSection.id }}구역 좌석 정보가 없습니다.
+          </div>
+          <div v-else class="space-y-1.5 sm:space-y-2">
             <div
               v-for="row in selectedSection.rows"
               :key="row"
@@ -642,14 +749,18 @@ const completeSeatSelection = async () => {
                 :class="
                   isHoldingSeat(`${selectedSection.id}-${row}-${col}`)
                     ? 'cursor-wait border-orange-200 bg-orange-100 text-orange-300'
-                    : getSeatState(row, col).isOccupied
+                    : getSeatState(row, col).status === 'HELD_BY_OTHER'
+                      ? 'cursor-not-allowed border-amber-200 bg-amber-50 text-amber-400'
+                      : getSeatState(row, col).status === 'RESERVED'
+                        ? 'cursor-not-allowed border-slate-300 bg-slate-300 text-slate-500'
+                      : getSeatState(row, col).isOccupied
                       ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-300'
                       : getSeatState(row, col).isSelected
                         ? 'border-orange-500 bg-orange-500 font-bold text-white shadow-md shadow-orange-200'
                         : 'border-orange-200 bg-white text-slate-600 hover:border-orange-400 hover:bg-orange-50'
                 "
                 :disabled="getSeatState(row, col).isOccupied || isHoldingSeat(`${selectedSection.id}-${row}-${col}`)"
-                :title="`${row}열 ${col}번`"
+                :title="`${row}열 ${col}번${getSeatState(row, col).status === 'HELD_BY_OTHER' ? ' · 다른 사용자가 선점 중' : getSeatState(row, col).status === 'RESERVED' ? ' · 예매 완료' : ''}`"
                 @click="toggleSeat(row, col)"
               >
                 {{ col }}
@@ -666,7 +777,10 @@ const completeSeatSelection = async () => {
               <div class="h-4 w-4 rounded border border-orange-200 bg-white"></div>선택가능
             </div>
             <div class="flex items-center gap-1.5">
-              <div class="h-4 w-4 rounded border border-slate-200 bg-slate-100"></div>선택불가
+              <div class="h-4 w-4 rounded border border-amber-200 bg-amber-50"></div>다른 사용자 선점중
+            </div>
+            <div class="flex items-center gap-1.5">
+              <div class="h-4 w-4 rounded border border-slate-300 bg-slate-300"></div>예매 완료
             </div>
           </div>
         </div>

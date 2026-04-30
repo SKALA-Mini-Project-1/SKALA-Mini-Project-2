@@ -10,7 +10,7 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "ticketing_outbox")
+@Table(name = "ticketing_outbox", schema = "ticketing")
 @Getter
 @Setter
 public class TicketingOutbox {

@@ -26,7 +26,7 @@ services:
       context: .
       dockerfile: user-auth-service/Dockerfile
     environment:
-      DB_URL: jdbc:postgresql://postgres:5432/concert
+      DB_URL: jdbc:postgresql://postgres:5432/concert?currentSchema=auth,queue,concert,ticketing,payment,public
       DB_USER: skala
       DB_PASSWORD: skala1229
       REDIS_HOST: redis
@@ -50,7 +50,7 @@ services:
       context: .
       dockerfile: concert-service/Dockerfile
     environment:
-      DB_URL: jdbc:postgresql://postgres:5432/concert
+      DB_URL: jdbc:postgresql://postgres:5432/concert?currentSchema=concert,public
       DB_USER: skala
       DB_PASSWORD: skala1229
       REDIS_HOST: redis
@@ -70,7 +70,7 @@ services:
       context: .
       dockerfile: queue-service/Dockerfile
     environment:
-      DB_URL: jdbc:postgresql://postgres:5432/concert
+      DB_URL: jdbc:postgresql://postgres:5432/concert?currentSchema=queue,concert,ticketing,payment,auth,public
       DB_USER: skala
       DB_PASSWORD: skala1229
       REDIS_HOST: redis
@@ -93,7 +93,7 @@ services:
       context: .
       dockerfile: ticketing-service/Dockerfile
     environment:
-      DB_URL: jdbc:postgresql://postgres:5432/concert
+      DB_URL: jdbc:postgresql://postgres:5432/concert?currentSchema=ticketing,concert,public
       DB_USER: skala
       DB_PASSWORD: skala1229
       REDIS_HOST: redis
@@ -117,7 +117,7 @@ services:
       context: .
       dockerfile: payment-service/Dockerfile
     environment:
-      DB_URL: jdbc:postgresql://postgres:5432/concert
+      DB_URL: jdbc:postgresql://postgres:5432/concert?currentSchema=payment,ticketing,concert,queue,auth,public
       DB_USER: skala
       DB_PASSWORD: skala1229
       REDIS_HOST: redis
@@ -150,7 +150,7 @@ services:
       VITE_QUEUE_API_URL: http://queue-service:8080
       VITE_TICKETING_API_URL: http://ticketing-service:8080
       VITE_PAYMENT_API_URL: http://payment-service:8080
-      VITE_TOSS_CLIENT_KEY: ${TOSS_CLIENT_KEY:-}
+      VITE_TOSS_CLIENT_KEY: ${VITE_TOSS_CLIENT_KEY:-}
     depends_on:
       - user-auth-service
       - concert-service

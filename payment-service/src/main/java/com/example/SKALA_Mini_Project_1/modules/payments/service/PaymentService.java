@@ -7,6 +7,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -22,9 +23,11 @@ import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.I
 import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.TicketingBookingQueryClient;
 import com.example.SKALA_Mini_Project_1.modules.payments.integration.toss.TossConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.integration.toss.TossPaymentsClient;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCancelRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentExitSignalRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentGetResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentHistoryItemResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentHistorySeatResponse;
@@ -394,10 +397,14 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
     }
 
     @Transactional
-    public PaymentConfirmResponse cancelByUser(UUID paymentId, Long userId) {
+    public PaymentConfirmResponse cancelByUser(UUID paymentId, Long userId, PaymentCancelRequest request) {
         Payment payment = paymentRepository.findByIdForUpdate(paymentId)
                 .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
         ensureOwner(payment, userId);
+
+        if (payment.getStatus() == PaymentStatus.CANCELED) {
+            return new PaymentConfirmResponse(payment.getId(), payment.getBookingId(), payment.getStatus().name());
+        }
 
         if (payment.getStatus() != PaymentStatus.PENDING
                 && payment.getStatus() != PaymentStatus.PAYING) {
@@ -409,10 +416,94 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         payment.changeStatus(PaymentStatus.CANCELED);
         payment.setUpdatedAt(now);
         payment.setPgStatus("USER_CANCELED");
-        paymentEventRecorder.record(payment, "PAYMENT_CANCELED_BY_USER", from, payment.getStatus().name(), null, payment.getPgOrderId());
+        paymentEventRecorder.recordWithMetadata(
+                payment,
+                "PAYMENT_CANCELED_BY_USER",
+                from,
+                payment.getStatus().name(),
+                buildReasonMetadata(
+                        request == null ? null : request.getReasonCode(),
+                        request == null ? null : request.getSource(),
+                        request == null ? null : request.getClientRoute(),
+                        false
+                ),
+                payment.getPgOrderId()
+        );
         // ticketing-service Kafka consumer가 비동기로 booking을 취소한다
 
         return new PaymentConfirmResponse(payment.getId(), payment.getBookingId(), payment.getStatus().name());
+    }
+
+    @Transactional
+    public PaymentConfirmResponse cancelConfirmedBooking(UUID paymentId, Long userId) {
+        Payment payment = paymentRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
+        ensureOwner(payment, userId);
+
+        if (payment.getStatus() == PaymentStatus.REFUNDED) {
+            return new PaymentConfirmResponse(payment.getId(), payment.getBookingId(), payment.getStatus().name());
+        }
+
+        if (payment.getStatus() != PaymentStatus.CONFIRMED) {
+            throw new IllegalStateException("Booking cancel is only allowed in CONFIRMED status: " + payment.getStatus());
+        }
+
+        tossPaymentsClient.cancel(
+                payment.getPgPaymentKey(),
+                payment.getAmount(),
+                "사용자 예매 취소"
+        );
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+
+        Refund refund = new Refund();
+        refund.setPaymentId(paymentId);
+        refund.setStatus("COMPLETED");
+        refund.setReasonCode("USER_BOOKING_CANCEL");
+        refund.setAmount(BigDecimal.valueOf(payment.getAmount() == null ? 0L : payment.getAmount()));
+        refund.setRequestedAt(now);
+        refund.setCompletedAt(now);
+        refundRepository.save(refund);
+
+        String from = payment.getStatus().name();
+        payment.changeStatus(PaymentStatus.REFUNDED);
+        payment.setUpdatedAt(now);
+        paymentEventRecorder.recordWithMetadata(
+                payment,
+                "PAYMENT_CANCELED_BY_USER",
+                from,
+                payment.getStatus().name(),
+                buildReasonMetadata("USER_BOOKING_CANCEL", "mypage", "/mypage", false),
+                payment.getPgOrderId()
+        );
+
+        return new PaymentConfirmResponse(payment.getId(), payment.getBookingId(), payment.getStatus().name());
+    }
+
+    @Transactional
+    public void recordExitSignal(UUID paymentId, Long userId, PaymentExitSignalRequest request) {
+        Payment payment = paymentRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
+        ensureOwner(payment, userId);
+
+        if (payment.getStatus() != PaymentStatus.PENDING
+                && payment.getStatus() != PaymentStatus.PAYING) {
+            return;
+        }
+
+        paymentEventRecorder.recordWithMetadata(
+                payment,
+                "PAYMENT_EXIT_DETECTED",
+                payment.getStatus().name(),
+                payment.getStatus().name(),
+                buildReasonMetadata(
+                        request == null ? null : request.getReasonCode(),
+                        request == null ? null : request.getSource(),
+                        request == null ? null : request.getClientRoute(),
+                        true
+                ),
+                payment.getPgOrderId()
+        );
     }
 
     private void markRefundRequired(Payment payment, OffsetDateTime now, String orderId, String reason) {
@@ -708,6 +799,21 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             return List.of();
         }
         return response.bookingIds();
+    }
+
+    private Map<String, Object> buildReasonMetadata(String reasonCode, String source, String clientRoute, boolean bestEffort) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (reasonCode != null && !reasonCode.isBlank()) {
+            metadata.put("reason", reasonCode);
+        }
+        if (source != null && !source.isBlank()) {
+            metadata.put("source", source);
+        }
+        if (clientRoute != null && !clientRoute.isBlank()) {
+            metadata.put("clientRoute", clientRoute);
+        }
+        metadata.put("bestEffort", bestEffort);
+        return metadata;
     }
 
 }

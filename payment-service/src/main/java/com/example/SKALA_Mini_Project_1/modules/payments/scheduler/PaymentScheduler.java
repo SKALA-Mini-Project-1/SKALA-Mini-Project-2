@@ -17,6 +17,7 @@ import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.T
 import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.TicketingFinalizationClient;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.Payment;
 import com.example.SKALA_Mini_Project_1.modules.payments.domain.PaymentStatus;
+import com.example.SKALA_Mini_Project_1.modules.payments.repository.PaymentEventRepository;
 import com.example.SKALA_Mini_Project_1.modules.payments.repository.PaymentRepository;
 import com.example.SKALA_Mini_Project_1.modules.payments.service.PaymentEventRecorder;
 
@@ -29,6 +30,7 @@ import lombok.extern.slf4j.Slf4j;
 public class PaymentScheduler {
 
     private final PaymentRepository paymentRepository;
+    private final PaymentEventRepository paymentEventRepository;
     private final PaymentEventRecorder paymentEventRecorder;
     private final TicketingFinalizationClient ticketingFinalizationClient;
 
@@ -56,11 +58,15 @@ public class PaymentScheduler {
 
         for (Payment payment : deduped.values()) {
             try {
+                String expirationReason = paymentEventRepository.existsByPaymentIdAndEventType(
+                        payment.getId(),
+                        "PAYMENT_EXIT_DETECTED"
+                ) ? "TIMEOUT_AFTER_EXIT_SIGNAL" : "PAYMENT_TIMEOUT";
                 InternalBookingFinalizationResponse response = ticketingFinalizationClient.finalizeBooking(
                         payment,
                         TicketingFinalizationAction.EXPIRE,
                         now,
-                        "PAYMENT_TIMEOUT"
+                        expirationReason
                 );
                 if ("BOOKING_ALREADY_CONFIRMED".equalsIgnoreCase(response.outcome())) {
                     log.info("Skip expiring payment because booking is already confirmed. paymentId={}", payment.getId());
@@ -74,7 +80,7 @@ public class PaymentScheduler {
                         "PAYMENT_EXPIRED",
                         from,
                         payment.getStatus().name(),
-                        null,
+                        expirationReason,
                         payment.getPgOrderId()
                 );
             } catch (Exception e) {

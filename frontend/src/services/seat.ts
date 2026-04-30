@@ -7,6 +7,7 @@ export interface SeatMapItem {
   rowNumber: number;
   seatNumber: number;
   status: string;
+  displayStatus?: string | null;
   isHeldByMe?: boolean | null;
 }
 
@@ -21,8 +22,37 @@ export interface BatchSeatHoldResponse {
   message?: string;
 }
 
+export interface SeatSectionSummaryItem {
+  section: string;
+  seatCount: number;
+  reservedSeatCount: number;
+  availableSeatCount: number;
+  rowCount: number;
+  colCount: number;
+  grade: string;
+  price: number;
+}
+
 interface SeatMapResponse {
   concertId: number;
+  seatCount: number;
+  seatAccessTtlSeconds?: number;
+  seats: SeatMapItem[];
+}
+
+export interface SeatSectionSummaryResponse {
+  concertId: number;
+  scheduleId: number;
+  totalSeatCount: number;
+  sectionCount: number;
+  seatAccessTtlSeconds?: number;
+  sections: SeatSectionSummaryItem[];
+}
+
+export interface SeatSectionDetailResponse {
+  concertId: number;
+  scheduleId: number;
+  section: string;
   seatCount: number;
   seatAccessTtlSeconds?: number;
   seats: SeatMapItem[];
@@ -41,6 +71,24 @@ export const getSeatMapBySchedule = async (scheduleId: number) => {
   const token = getToken();
 
   return apiRequest<SeatMapResponse>(`/api/concerts/schedules/${scheduleId}/seats`, {
+    method: 'GET',
+    ...(token ? { token } : {})
+  });
+};
+
+export const getSeatSectionSummaryBySchedule = async (scheduleId: number) => {
+  const token = getToken();
+
+  return apiRequest<SeatSectionSummaryResponse>(`/api/concerts/schedules/${scheduleId}/seat-summary`, {
+    method: 'GET',
+    ...(token ? { token } : {})
+  });
+};
+
+export const getSeatSectionDetailBySchedule = async (scheduleId: number, section: string) => {
+  const token = getToken();
+
+  return apiRequest<SeatSectionDetailResponse>(`/api/concerts/schedules/${scheduleId}/sections/${encodeURIComponent(section)}/seats`, {
     method: 'GET',
     ...(token ? { token } : {})
   });
