@@ -23,13 +23,14 @@ public class PaymentEventRecorder {
             String eventType,
             String fromStatus,
             String toStatus,
-            String payloadJson,
+            String extraInfo,
             String pgEventId
     ) {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         PaymentEvent ev = new PaymentEvent();
         ev.setEventId(UUID.randomUUID());
         ev.setPaymentId(payment.getId());
+        ev.setBookingId(payment.getBookingId());
         ev.setEventType(eventType);
         ev.setEventVersion("v1");
         ev.setProducer("payment-service");
@@ -43,9 +44,28 @@ public class PaymentEventRecorder {
         ev.setToStatus(toStatus);
         ev.setIdempotencyKey(payment.getIdempotencyKey());
         ev.setPgEventId(pgEventId);
-        ev.setPayloadJson(payloadJson);
+        ev.setPayloadJson(buildPayloadJson(payment, extraInfo));
         ev.setOccurredAt(now);
         ev.setCreatedAt(now);
+        ev.setPublishStatus("PENDING");
+        ev.setRetryCount(0);
         paymentEventRepository.save(ev);
+    }
+
+    private String buildPayloadJson(Payment payment, String extraInfo) {
+        StringBuilder sb = new StringBuilder("{");
+        sb.append("\"bookingId\":\"").append(safe(payment.getBookingId())).append("\"");
+        sb.append(",\"amount\":").append(payment.getAmount() != null ? payment.getAmount() : 0);
+        sb.append(",\"pgOrderId\":\"").append(safe(payment.getPgOrderId())).append("\"");
+        sb.append(",\"pgPaymentKey\":\"").append(safe(payment.getPgPaymentKey())).append("\"");
+        if (extraInfo != null && !extraInfo.isBlank()) {
+            sb.append(",\"extra\":\"").append(extraInfo.replace("\"", "\\\"")).append("\"");
+        }
+        sb.append("}");
+        return sb.toString();
+    }
+
+    private String safe(Object value) {
+        return value == null ? "" : value.toString();
     }
 }

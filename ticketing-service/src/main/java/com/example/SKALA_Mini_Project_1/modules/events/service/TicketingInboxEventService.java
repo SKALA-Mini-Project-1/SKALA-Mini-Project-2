@@ -88,6 +88,44 @@ public class TicketingInboxEventService {
                 nullSafe(pgPaymentKey));
     }
 
+    /**
+     * Kafka consumer용 dedupe 기록. eventId를 dedupe key로 사용한다.
+     * 이미 처리된 이벤트면 false, 최초 수신이면 true를 반환한다.
+     */
+    @Transactional
+    public boolean tryRecordKafkaEvent(
+            UUID eventId,
+            String eventType,
+            UUID bookingId,
+            UUID paymentId,
+            String pgOrderId,
+            String pgPaymentKey
+    ) {
+        String dedupeKey = "kafka:" + eventId.toString();
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+
+        if (ticketingInboxEventRepository.findByDedupeKey(dedupeKey).isPresent()) {
+            return false;
+        }
+
+        TicketingInboxEvent event = new TicketingInboxEvent();
+        event.setId(UUID.randomUUID());
+        event.setDedupeKey(dedupeKey);
+        event.setEventType(eventType);
+        event.setProducer("payment-service");
+        event.setBookingId(bookingId);
+        event.setPaymentId(paymentId);
+        event.setAggregateId(bookingId != null ? bookingId.toString() : null);
+        event.setPgOrderId(pgOrderId);
+        event.setPgPaymentKey(pgPaymentKey);
+        event.setStatus(STATUS_RECEIVED);
+        event.setDuplicateCount(0);
+        event.setReceivedAt(now);
+        event.setLastSeenAt(now);
+        ticketingInboxEventRepository.save(event);
+        return true;
+    }
+
     private String nullSafe(Object value) {
         return value == null ? "null" : value.toString();
     }

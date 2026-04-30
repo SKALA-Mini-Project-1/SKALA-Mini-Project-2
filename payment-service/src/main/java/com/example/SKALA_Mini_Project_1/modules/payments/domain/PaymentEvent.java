@@ -78,4 +78,19 @@ public class PaymentEvent {
 
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
+
+    @Column(name = "booking_id", columnDefinition = "uuid")
+    private UUID bookingId;
+
+    @Column(name = "publish_status", length = 20, nullable = false)
+    private String publishStatus = "PENDING";
+
+    @Column(name = "published_at")
+    private OffsetDateTime publishedAt;
+
+    @Column(name = "retry_count", nullable = false)
+    private Integer retryCount = 0;
+
+    @Column(name = "last_error", columnDefinition = "TEXT")
+    private String lastError;
 }

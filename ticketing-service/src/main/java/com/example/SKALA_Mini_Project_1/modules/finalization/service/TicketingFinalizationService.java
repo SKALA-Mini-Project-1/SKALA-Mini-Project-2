@@ -5,6 +5,7 @@ import com.example.SKALA_Mini_Project_1.global.redis.RedisLockRepository;
 import com.example.SKALA_Mini_Project_1.modules.bookings.domain.Booking;
 import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingItemRepository;
 import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository;
+import com.example.SKALA_Mini_Project_1.modules.events.service.TicketingOutboxRecorder;
 import com.example.SKALA_Mini_Project_1.modules.fanscore.FanScoreService;
 import com.example.SKALA_Mini_Project_1.modules.finalization.dto.InternalBookingCancelRequest;
 import com.example.SKALA_Mini_Project_1.modules.finalization.dto.InternalBookingConfirmRequest;
@@ -43,6 +44,7 @@ public class TicketingFinalizationService {
     private final RedisTemplate<String, String> redisTemplate;
     private final FanScoreService fanScoreService;
     private final ReconciliationTaskService reconciliationTaskService;
+    private final TicketingOutboxRecorder ticketingOutboxRecorder;
 
     @Transactional
     public InternalBookingFinalizationResponse confirmBooking(InternalBookingConfirmRequest request) {
@@ -103,6 +105,7 @@ public class TicketingFinalizationService {
         booking.setConfirmedAt(processedAt);
 
         fanScoreService.applyConfirmedBookingScore(booking.getId(), booking.getUserId());
+        ticketingOutboxRecorder.record("booking.confirmed", booking.getId(), request.paymentId(), null, processedAt);
         scheduleSeatCleanupAfterCommit(context.concertId(), booking.getScheduleId(), booking.getUserId());
 
         return response(
@@ -121,28 +124,38 @@ public class TicketingFinalizationService {
 
     @Transactional
     public InternalBookingFinalizationResponse cancelBooking(InternalBookingCancelRequest request) {
-        return closeBooking(
+        OffsetDateTime canceledAt = resolveTime(request.canceledAt());
+        InternalBookingFinalizationResponse result = closeBooking(
                 request.bookingId(),
                 request.paymentId(),
                 request.pgOrderId(),
                 request.reasonCode(),
-                resolveTime(request.canceledAt()),
+                canceledAt,
                 "CANCELED_BY_PAYMENT",
                 "ALREADY_CANCELED"
         );
+        if ("CANCELED_BY_PAYMENT".equals(result.outcome())) {
+            ticketingOutboxRecorder.record("booking.canceled", request.bookingId(), request.paymentId(), null, canceledAt);
+        }
+        return result;
     }
 
     @Transactional
     public InternalBookingFinalizationResponse expireBooking(InternalBookingExpireRequest request) {
-        return closeBooking(
+        OffsetDateTime expiredAt = resolveTime(request.expiredAt());
+        InternalBookingFinalizationResponse result = closeBooking(
                 request.bookingId(),
                 request.paymentId(),
                 request.pgOrderId(),
                 request.reasonCode(),
-                resolveTime(request.expiredAt()),
+                expiredAt,
                 "EXPIRED_BY_PAYMENT",
                 "ALREADY_EXPIRED_OR_CANCELED"
         );
+        if ("EXPIRED_BY_PAYMENT".equals(result.outcome())) {
+            ticketingOutboxRecorder.record("booking.expired", request.bookingId(), request.paymentId(), null, expiredAt);
+        }
+        return result;
     }
 
     private InternalBookingFinalizationResponse closeBooking(
