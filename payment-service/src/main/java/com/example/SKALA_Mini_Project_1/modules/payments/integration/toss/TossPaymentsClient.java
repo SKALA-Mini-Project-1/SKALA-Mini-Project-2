@@ -17,13 +17,16 @@ public class TossPaymentsClient {
 
     private final WebClient webClient;
     private final String confirmUrl;
+    private final String cancelBaseUrl;
 
     public TossPaymentsClient(
             WebClient.Builder webClientBuilder,
             @Value("${toss.secret-key}") String secretKey,
-            @Value("${toss.confirm-url}") String confirmUrl
+            @Value("${toss.confirm-url}") String confirmUrl,
+            @Value("${toss.cancel-base-url:https://api.tosspayments.com/v1/payments}") String cancelBaseUrl
     ) {
         this.confirmUrl = confirmUrl;
+        this.cancelBaseUrl = cancelBaseUrl;
 
         String credential = Base64.getEncoder()
                 .encodeToString((secretKey + ":").getBytes(StandardCharsets.UTF_8));
@@ -46,6 +49,23 @@ public class TossPaymentsClient {
         } catch (WebClientResponseException e) {
             throw new TossPaymentsException(
                     "Toss confirm failed: " + e.getStatusCode() + " " + e.getResponseBodyAsString(),
+                    e
+            );
+        }
+    }
+
+    public TossCancelResponse cancel(String paymentKey, Long cancelAmount, String cancelReason) {
+        try {
+            return webClient.post()
+                    .uri(cancelBaseUrl + "/" + paymentKey + "/cancel")
+                    .bodyValue(new TossCancelRequest(cancelReason, cancelAmount))
+                    .retrieve()
+                    .bodyToMono(TossCancelResponse.class)
+                    .block();
+
+        } catch (WebClientResponseException e) {
+            throw new TossPaymentsException(
+                    "Toss cancel failed: " + e.getStatusCode() + " " + e.getResponseBodyAsString(),
                     e
             );
         }

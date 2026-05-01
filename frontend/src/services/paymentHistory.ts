@@ -45,6 +45,7 @@ export async function fetchMyPaymentHistory(token: string, userId: number): Prom
     const seatLabels = Array.isArray(row.seatLabels) ? row.seatLabels : [];
 
     return {
+      paymentId: row.paymentId,
       bookingNumber: row.pgOrderId ?? row.paymentId,
       userId,
       concertTitle: row.concertName ?? row.orderName ?? '공연 정보 없음',

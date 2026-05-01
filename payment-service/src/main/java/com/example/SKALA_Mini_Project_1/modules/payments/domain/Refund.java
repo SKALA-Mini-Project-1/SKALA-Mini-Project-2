@@ -15,7 +15,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 @Entity
-@Table(name = "refunds")
+@Table(name = "refunds", schema = "payment")
 @Getter
 @Setter
 public class Refund {

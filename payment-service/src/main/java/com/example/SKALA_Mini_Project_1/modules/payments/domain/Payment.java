@@ -18,7 +18,7 @@ import java.util.Map;
 import java.util.Set;
 
 @Entity
-@Table(name = "payments")
+@Table(name = "payments", schema = "payment")
 @Getter
 @Setter
 public class Payment {
@@ -88,6 +88,9 @@ public class Payment {
 
         TRANSITION_MAP.put(PaymentStatus.PAID,
                 Set.of(PaymentStatus.CONFIRMED));
+
+        TRANSITION_MAP.put(PaymentStatus.CONFIRMED,
+                Set.of(PaymentStatus.REFUNDED));
 
         TRANSITION_MAP.put(PaymentStatus.EXPIRED,
                 Set.of(PaymentStatus.REFUND_REQUIRED));

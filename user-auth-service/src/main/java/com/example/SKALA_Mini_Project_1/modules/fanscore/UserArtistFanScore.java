@@ -21,6 +21,7 @@ import lombok.NoArgsConstructor;
 @Entity
 @Table(
         name = "user_artist_fan_scores",
+        schema = "queue",
         uniqueConstraints = {
                 @UniqueConstraint(
                         name = "uk_user_artist_fan_scores_user_artist",

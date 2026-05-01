@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { AlertCircle, LoaderCircle, Mail, Phone, QrCode, Trophy, User2, X } from 'lucide-vue-next';
+import { AlertCircle, LoaderCircle, Mail, Phone, QrCode, Trophy, User2, X, XCircle } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
+import ConfirmModal from './ConfirmModal.vue';
 import { apiRequest, ApiError } from '../services/api';
 import { clearAuth, getAuthUser, getToken, setAuthUser } from '../services/auth';
 import { fetchMyPaymentHistory } from '../services/paymentHistory';
@@ -192,7 +193,57 @@ const saveProfile = async () => {
   }
 };
 
-const logout = async () => {
+const showCancelConfirm = ref(false);
+const cancelTargetBooking = ref<BookingHistoryRecord | null>(null);
+const cancelingId = ref<string | null>(null);
+const cancelError = ref('');
+const cancelSuccess = ref('');
+
+const openCancelConfirm = (booking: BookingHistoryRecord) => {
+  cancelTargetBooking.value = booking;
+  cancelError.value = '';
+  cancelSuccess.value = '';
+  showCancelConfirm.value = true;
+};
+
+const doCancelBooking = async () => {
+  if (!cancelTargetBooking.value) return;
+  const booking = cancelTargetBooking.value;
+  showCancelConfirm.value = false;
+  cancelingId.value = booking.paymentId;
+  cancelError.value = '';
+  cancelSuccess.value = '';
+
+  const token = getToken();
+  if (!token) {
+    cancelError.value = '로그인이 필요합니다.';
+    cancelingId.value = null;
+    return;
+  }
+
+  try {
+    await apiRequest(`/api/payments/${booking.paymentId}/cancel-booking`, {
+      method: 'POST',
+      token
+    });
+    cancelSuccess.value = '예매가 취소되었습니다. 환불은 영업일 기준 3~5일 내 처리됩니다.';
+    await loadBookings();
+  } catch (error) {
+    cancelError.value = error instanceof ApiError ? error.message : '예매 취소 중 오류가 발생했습니다.';
+  } finally {
+    cancelingId.value = null;
+    cancelTargetBooking.value = null;
+  }
+};
+
+const showLogoutConfirm = ref(false);
+
+const logout = () => {
+  showLogoutConfirm.value = true;
+};
+
+const doLogout = async () => {
+  showLogoutConfirm.value = false;
   const token = getToken();
 
   try {
@@ -229,6 +280,18 @@ onMounted(() => {
 </script>
 
 <template>
+  <ConfirmModal
+    v-if="showCancelConfirm && cancelTargetBooking"
+    :message="`'${cancelTargetBooking.concertTitle}' 예매를 취소하시겠습니까?\n결제 금액 ${cancelTargetBooking.totalAmount.toLocaleString()}원이 환불됩니다.`"
+    @confirm="doCancelBooking"
+    @cancel="showCancelConfirm = false"
+  />
+  <ConfirmModal
+    v-if="showLogoutConfirm"
+    message="로그아웃 하시겠습니까?"
+    @confirm="doLogout"
+    @cancel="showLogoutConfirm = false"
+  />
   <div class="mx-auto max-w-[1120px] p-3 sm:p-4 md:p-8">
     <div class="mb-6 rounded-2xl border border-[#ffd9b8] bg-white px-6 py-7 text-[#173451] shadow-sm">
       <p class="inline-block rounded-full bg-[#fff2e6] px-3 py-1 text-xs font-bold text-[#ff7a00]">MY FAIRLINE</p>
@@ -357,6 +420,13 @@ onMounted(() => {
           </div>
         </div>
 
+        <div v-if="cancelSuccess" class="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">
+          {{ cancelSuccess }}
+        </div>
+        <div v-if="cancelError" class="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-600">
+          {{ cancelError }}
+        </div>
+
         <div v-if="bookingCards.length === 0" class="rounded-xl border border-dashed border-[#d9e2ec] bg-[#f8fbff] p-10 text-center text-sm text-[#6a829b]">
           아직 예매 내역이 없습니다.
         </div>
@@ -395,6 +465,14 @@ onMounted(() => {
                 >
                   <QrCode :size="16" class="mr-2" />
                   모바일 티켓
+                </button>
+                <button
+                  class="flex items-center justify-center whitespace-nowrap rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-bold text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  :disabled="cancelingId === booking.paymentId"
+                  @click="openCancelConfirm(booking)"
+                >
+                  <XCircle :size="16" class="mr-2" />
+                  {{ cancelingId === booking.paymentId ? '취소 중...' : '예매 취소' }}
                 </button>
               </div>
             </div>

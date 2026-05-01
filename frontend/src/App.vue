@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { cancelPayment, sendPaymentExitSignal } from './data/payments'
 import Header from './components/Header.vue'
 import MainPage from './components/MainPage.vue'
 import ConcertListPage from './components/ConcertListPage.vue'
@@ -12,6 +13,7 @@ import BookingConfirmation from './components/BookingConfirmation.vue'
 import PaymentRedirectSuccess from './components/PaymentRedirectSuccess.vue'
 import PaymentRedirectFail from './components/PaymentRedirectFail.vue'
 import MyPage from './components/MyPage.vue'
+import ConfirmModal from './components/ConfirmModal.vue'
 import ServerError from './components/ServerError.vue'
 import SoldOut from './components/SoldOut.vue'
 import LoginPage from './components/LoginPage.vue'
@@ -22,6 +24,7 @@ import type { BookingData, Seat } from './types'
 import { apiRequest } from './services/api'
 import { clearAuth, getToken, isLoggedIn } from './services/auth'
 import { fetchConcerts } from './services/concerts'
+import { clearActivePaymentSession, getActivePaymentSession } from './services/paymentSession'
 import type { ConcertItem } from './types'
 
 const bookingData = reactive<BookingData>({
@@ -124,6 +127,7 @@ const redirectToLogin = (path: string, search = '', replace = false) => {
 }
 
 const navigate = (path: string) => {
+  void cancelActivePaymentIfNeeded(path, 'ROUTE_LEAVE')
   const url = new URL(path, window.location.origin)
 
   if (protectedPaths.has(url.pathname) && !authState.value) {
@@ -141,6 +145,8 @@ const openConcert = (concertId: string) => {
 const handlePopState = () => {
   const path = window.location.pathname || '/main'
   const search = window.location.search || ''
+
+  void cancelActivePaymentIfNeeded(`${path}${search}`, 'ROUTE_LEAVE')
 
   if (protectedPaths.has(path) && !authState.value) {
     redirectToLogin(path, search, true)
@@ -188,13 +194,17 @@ const handleSeatComplete = (payload: { seats: Seat[]; bookingId: string }) => {
   navigate('/concert/payment')
 }
 
-const handlePaymentComplete = () => {
-  navigate('/concert/confirm')
+const showLogoutConfirm = ref(false)
+
+const handleLogout = () => {
+  showLogoutConfirm.value = true
 }
 
-const handleLogout = async () => {
+const doLogout = async () => {
+  showLogoutConfirm.value = false
   try {
     const token = getToken()
+    await cancelActivePaymentIfNeeded('/login', 'LOGOUT')
     if (token) {
       await apiRequest<{ message: string; status: string }>('/api/users/logout', {
         method: 'POST',
@@ -204,6 +214,7 @@ const handleLogout = async () => {
   } catch {
     // 서버 로그아웃 실패여도 클라이언트 세션은 제거
   } finally {
+    clearActivePaymentSession()
     clearAuth()
     authState.value = false
     if (protectedPaths.has(normalizedPath.value)) {
@@ -239,7 +250,41 @@ const handleLoggedIn = () => {
 }
 
 const handleLoggedOut = () => {
+  clearActivePaymentSession()
   authState.value = false
+}
+
+const cancelActivePaymentIfNeeded = async (nextPath: string, reasonCode: string) => {
+  const current = normalizedPath.value
+  const nextUrl = new URL(nextPath, window.location.origin)
+  if (current !== '/concert/payment' || nextUrl.pathname === '/concert/payment') {
+    return
+  }
+
+  const session = getActivePaymentSession()
+  const token = getToken()
+  if (!session || !token) {
+    return
+  }
+
+  const payload = {
+    reasonCode,
+    source: 'APP_NAVIGATION',
+    clientRoute: nextUrl.pathname
+  }
+
+  try {
+    await sendPaymentExitSignal(session.paymentId, token, payload)
+  } catch {
+    // 운영 추적 보강용 best-effort 호출
+  }
+
+  try {
+    await cancelPayment(session.paymentId, token, payload)
+    clearActivePaymentSession()
+  } catch {
+    // 실패 시 스케줄러가 EXPIRED로 정리한다.
+  }
 }
 
 onMounted(() => {
@@ -275,6 +320,12 @@ onUnmounted(() => {
 
 <template>
   <div class="min-h-screen bg-[#f3f7fc] text-[#1d3a5b]">
+    <ConfirmModal
+      v-if="showLogoutConfirm"
+      message="로그아웃 하시겠습니까?"
+      @confirm="doLogout"
+      @cancel="showLogoutConfirm = false"
+    />
     <Header
       :current-path="normalizedPath"
       :is-authenticated="authState"
@@ -339,7 +390,7 @@ onUnmounted(() => {
       <PaymentScreen
         v-else-if="normalizedPath === '/concert/payment'"
         :booking-data="bookingData"
-        @payment-complete="handlePaymentComplete"
+        @navigate="navigate"
       />
       <PaymentRedirectSuccess
         v-else-if="normalizedPath === '/payments/success'"

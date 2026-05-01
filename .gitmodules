@@ -1,0 +1,3 @@
+[submodule "fairline_k8s"]
+	path = fairline_k8s
+	url = https://github.com/SKALA-Mini-Project-1/fairline-k8s.git

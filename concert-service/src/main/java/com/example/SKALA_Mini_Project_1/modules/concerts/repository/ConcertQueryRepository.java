@@ -33,12 +33,12 @@ public class ConcertQueryRepository {
                        a.name AS artist_name,
                        (
                          SELECT MIN(s2.price)
-                         FROM schedules sc2
-                         JOIN seats s2 ON s2.schedule_id = sc2.id
+                         FROM concert.schedules sc2
+                         JOIN concert.seats s2 ON s2.schedule_id = sc2.id
                          WHERE sc2.concert_id = c.id
                        ) AS min_price
-                FROM concerts c
-                LEFT JOIN artist a ON a.id = c.artist_id
+                FROM concert.concerts c
+                LEFT JOIN concert.artist a ON a.id = c.artist_id
                 WHERE c.is_visible = true
                 ORDER BY c.id DESC
                 """;
@@ -60,12 +60,12 @@ public class ConcertQueryRepository {
                        a.name AS artist_name,
                        (
                          SELECT MIN(s2.price)
-                         FROM schedules sc2
-                         JOIN seats s2 ON s2.schedule_id = sc2.id
+                         FROM concert.schedules sc2
+                         JOIN concert.seats s2 ON s2.schedule_id = sc2.id
                          WHERE sc2.concert_id = c.id
                        ) AS min_price
-                FROM concerts c
-                LEFT JOIN artist a ON a.id = c.artist_id
+                FROM concert.concerts c
+                LEFT JOIN concert.artist a ON a.id = c.artist_id
                 WHERE c.id = ? AND c.is_visible = true
                 """;
 
@@ -76,7 +76,7 @@ public class ConcertQueryRepository {
     public boolean existsScheduleForConcert(Long concertId, Long scheduleId) {
         String sql = """
                 SELECT COUNT(1)
-                FROM schedules
+                FROM concert.schedules
                 WHERE id = ? AND concert_id = ?
                 """;
 
@@ -87,7 +87,7 @@ public class ConcertQueryRepository {
     public Long findArtistIdByConcertId(Long concertId) {
         String sql = """
                 SELECT artist_id
-                FROM concerts
+                FROM concert.concerts
                 WHERE id = ?
                 """;
 
@@ -98,7 +98,7 @@ public class ConcertQueryRepository {
     private List<ConcertScheduleResponse> findSchedules(Long concertId) {
         String sql = """
                 SELECT id, start_time, end_time, total_seats
-                FROM schedules
+                FROM concert.schedules
                 WHERE concert_id = ?
                 ORDER BY start_time ASC
                 """;

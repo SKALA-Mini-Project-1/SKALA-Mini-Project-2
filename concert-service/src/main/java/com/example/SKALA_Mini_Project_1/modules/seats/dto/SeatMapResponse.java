@@ -44,6 +44,9 @@ public class SeatMapResponse {
         @Schema(description = "좌석 상태", example = "AVAILABLE")
         private String status;
 
+        @Schema(description = "요청 사용자 기준 가상 표시 상태", example = "HELD_BY_OTHER")
+        private String displayStatus;
+
         @Schema(description = "좌석 등급", example = "VIP")
         private String grade;
 

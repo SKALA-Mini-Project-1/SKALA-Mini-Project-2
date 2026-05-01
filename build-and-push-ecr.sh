@@ -24,7 +24,7 @@ echo ""
 
 # 빌드 대상 선택
 if [ "$1" == "all" ] || [ -z "$1" ]; then
-  SERVICES="user-auth-service concert-service queue-service ticketing-service payment-service"
+  SERVICES="user-auth-service concert-service queue-service ticketing-service payment-service incident-detector incident-agent incident-api"
   BUILD_FRONTEND=true
 else
   SERVICES=""

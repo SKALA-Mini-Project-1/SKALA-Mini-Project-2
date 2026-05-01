@@ -41,15 +41,15 @@ services:
       context: .
       dockerfile: user-auth-service/Dockerfile
     environment:
-      DB_URL: jdbc:postgresql://postgres:5432/concert
+      DB_URL: jdbc:postgresql://postgres:5432/concert?currentSchema=auth,queue,concert,ticketing,payment,public
       DB_USER: skala
       DB_PASSWORD: skala1229
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_SECRET: your-secret-key-min-32-characters-long-for-hs256-algorithm-security
       USER_AUTH_INTERNAL_API_TOKEN: dev-user-auth-internal-token
-      MAIL_USERNAME: ${MAIL_USERNAME:-}
-      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_USERNAME: fairlineTicket@gmail.com
+      MAIL_PASSWORD: kudkmzqbpchhovjd
       EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-no-reply@example.com}
       EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Fairline Ticket Team}
     depends_on:
@@ -68,7 +68,7 @@ services:
       context: .
       dockerfile: concert-service/Dockerfile
     environment:
-      DB_URL: jdbc:postgresql://postgres:5432/concert
+      DB_URL: jdbc:postgresql://postgres:5432/concert?currentSchema=concert,public
       DB_USER: skala
       DB_PASSWORD: skala1229
       REDIS_HOST: redis
@@ -91,6 +91,9 @@ services:
       context: .
       dockerfile: queue-service/Dockerfile
     environment:
+      DB_URL: jdbc:postgresql://postgres:5432/concert?currentSchema=queue,concert,ticketing,payment,auth,public
+      DB_USER: skala
+      DB_PASSWORD: skala1229
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_SECRET: your-secret-key-min-32-characters-long-for-hs256-algorithm-security
@@ -112,7 +115,7 @@ services:
       context: .
       dockerfile: ticketing-service/Dockerfile
     environment:
-      DB_URL: jdbc:postgresql://postgres:5432/concert
+      DB_URL: jdbc:postgresql://postgres:5432/concert?currentSchema=ticketing,concert,public
       DB_USER: skala
       DB_PASSWORD: skala1229
       REDIS_HOST: redis
@@ -124,6 +127,7 @@ services:
       CONCERT_INTERNAL_API_TOKEN: dev-concert-internal-token
       TICKETING_INTERNAL_API_TOKEN: dev-ticketing-internal-token
       TICKETING_FAN_SCORE_SYNC_FIXED_DELAY_MS: 60000
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     depends_on:
       postgres:
         condition: service_healthy
@@ -144,7 +148,7 @@ services:
       context: .
       dockerfile: payment-service/Dockerfile
     environment:
-      DB_URL: jdbc:postgresql://postgres:5432/concert
+      DB_URL: jdbc:postgresql://postgres:5432/concert?currentSchema=payment,ticketing,concert,queue,auth,public
       DB_USER: skala
       DB_PASSWORD: skala1229
       REDIS_HOST: redis
@@ -158,6 +162,7 @@ services:
       PAYMENT_SUCCESS_REDIRECT_URL: http://localhost:5173/payments/success
       PAYMENT_FAIL_REDIRECT_URL: http://localhost:5173/payments/fail
       PAYMENT_OPS_API_TOKEN: dev-payment-ops-token
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     depends_on:
       postgres:
         condition: service_healthy
@@ -178,6 +183,7 @@ services:
       VITE_QUEUE_API_URL: http://queue-service:8080
       VITE_TICKETING_API_URL: http://ticketing-service:8080
       VITE_PAYMENT_API_URL: http://payment-service:8080
+      VITE_TOSS_CLIENT_KEY: ${VITE_TOSS_CLIENT_KEY:-}
     depends_on:
       - user-auth-service
       - concert-service
@@ -187,5 +193,77 @@ services:
     ports:
       - "5173:5173"
 
+  kafka:
+    image: apache/kafka:latest
+    container_name: skala-kafka
+    hostname: kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"
+
+  incident-detector:
+    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
+    image: team4-incident-detector
+    build:
+      context: .
+      dockerfile: incident-detector/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/concert?currentSchema=incident,public
+      DB_USER: skala
+      DB_PASSWORD: skala1229
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+    ports:
+      - "18086:8080"
+
+  incident-agent:
+    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
+    image: team4-incident-agent
+    build:
+      context: .
+      dockerfile: incident-agent/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/concert?currentSchema=incident,public
+      DB_USER: skala
+      DB_PASSWORD: skala1229
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    depends_on:
+      - postgres
+    ports:
+      - "18087:8080"
+
+  incident-api:
+    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
+    image: team4-incident-api
+    build:
+      context: .
+      dockerfile: incident-api/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/concert?currentSchema=incident,public
+      DB_USER: skala
+      DB_PASSWORD: skala1229
+    depends_on:
+      - postgres
+    ports:
+      - "18088:8080"
+
 volumes:
   postgres-data:
+  kafka-data:

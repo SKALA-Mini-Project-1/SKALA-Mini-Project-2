@@ -168,6 +168,7 @@ public class SeatReservationService {
 
         String owner = redisLockRepository.getSeatOwner(concertId, scheduleId, seatId);
         if (owner == null) {
+            redisLockRepository.removeSeatFromUserHolds(concertId, scheduleId, seatId, String.valueOf(userId));
             return SeatReleaseResult.ALREADY_RELEASED;
         }
 

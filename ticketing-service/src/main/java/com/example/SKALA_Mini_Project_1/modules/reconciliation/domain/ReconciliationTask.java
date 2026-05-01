@@ -13,7 +13,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 @Entity
-@Table(name = "reconciliation_tasks")
+@Table(name = "reconciliation_tasks", schema = "ticketing")
 @Getter
 @Setter
 public class ReconciliationTask {
