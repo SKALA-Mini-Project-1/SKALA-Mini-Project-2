@@ -161,7 +161,10 @@ public class QueueService {
         runWithRedisRetry(() -> redisTemplate.opsForSet().add(RedisKeyGenerator.seatActiveIndexKey(), activeKey));
 
         long now = System.currentTimeMillis();
-        long weight = Math.min(fandomWeightMillis, QueuePriorityService.MAX_QUEUE_PRIORITY_BOOST_MILLIS);
+        long weight = Math.min(
+                Math.max(fandomWeightMillis, 0L),
+                QueuePriorityService.MAX_QUEUE_PRIORITY_BOOST_MILLIS
+        );
         long jitter = ThreadLocalRandom.current().nextLong(0, 50);
         long score = now - weight + jitter;
 
@@ -210,7 +213,7 @@ public class QueueService {
                 return;
             }
         } catch (RuntimeException ignored) {
-            // Redis 장애 시 원격 검증 결과만 사용
+            // Redis 장애 시 downstream 검증만 수행
         }
 
         concertServiceClient.ensureScheduleBelongsToConcert(concertId, scheduleId);
@@ -223,11 +226,11 @@ public class QueueService {
     }
 
     private String getQueueKey(Long concertId, Long scheduleId) {
-        return "queue:concert:" + concertId + ":schedule:" + scheduleId;
+        return RedisKeyGenerator.queueKey(concertId, scheduleId);
     }
 
     private String getActiveKey(Long concertId, Long scheduleId) {
-        return "seat:active:concert:" + concertId + ":schedule:" + scheduleId;
+        return RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
     }
 
     private void refreshQueueHeartbeat(Long concertId, Long scheduleId, String userId) {
