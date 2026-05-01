@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         AWS_REGION    = 'ap-northeast-2'
-        ECR_REGISTRY  = '881490135253.dkr.ecr.ap-northeast-2.amazonaws.com'
+        // ECR_REGISTRY: Jenkins 서버 환경변수로 관리 (Manage Jenkins → System → Global properties)
         K8S_NAMESPACE = 'fairline'
         DOCKER_HOST   = 'tcp://localhost:2375'
     }
