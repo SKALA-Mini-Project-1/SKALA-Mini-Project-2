@@ -2,6 +2,7 @@ services:
   postgres:
     image: postgres:17
     container_name: skala-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: skala
       POSTGRES_PASSWORD: skala1229
@@ -11,17 +12,31 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   redis:
     image: redis:7
     container_name: skala-redis
+    restart: unless-stopped
     command: redis-server --appendonly yes
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
 
   user-auth-service:
     platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
     image: team4-user-auth-service
+    restart: unless-stopped
     build:
       context: .
       dockerfile: user-auth-service/Dockerfile
@@ -38,14 +53,17 @@ services:
       EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-no-reply@example.com}
       EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Fairline Ticket Team}
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
       - "18081:8080"
 
   concert-service:
     platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
     image: team4-concert-service
+    restart: unless-stopped
     build:
       context: .
       dockerfile: concert-service/Dockerfile
@@ -58,14 +76,17 @@ services:
       JWT_SECRET: your-secret-key-min-32-characters-long-for-hs256-algorithm-security
       CONCERT_INTERNAL_API_TOKEN: dev-concert-internal-token
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
       - "18082:8080"
 
   queue-service:
     platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
     image: team4-queue-service
+    restart: unless-stopped
     build:
       context: .
       dockerfile: queue-service/Dockerfile
@@ -81,14 +102,15 @@ services:
       USER_AUTH_INTERNAL_API_TOKEN: dev-user-auth-internal-token
       CONCERT_INTERNAL_API_TOKEN: dev-concert-internal-token
     depends_on:
-      - postgres
-      - redis
+      redis:
+        condition: service_healthy
     ports:
       - "18083:8080"
 
   ticketing-service:
     platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
     image: team4-ticketing-service
+    restart: unless-stopped
     build:
       context: .
       dockerfile: ticketing-service/Dockerfile
@@ -104,15 +126,17 @@ services:
       TICKETING_INTERNAL_API_TOKEN: dev-ticketing-internal-token
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     depends_on:
-      - postgres
-      - redis
-      - kafka
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
       - "18084:8080"
 
   payment-service:
     platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
     image: team4-payment-service
+    restart: unless-stopped
     build:
       context: .
       dockerfile: payment-service/Dockerfile
@@ -133,14 +157,16 @@ services:
       PAYMENT_OPS_API_TOKEN: dev-payment-ops-token
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     depends_on:
-      - postgres
-      - redis
-      - kafka
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
       - "18085:8080"
 
   frontend:
     image: team4-frontend
+    restart: unless-stopped
     build:
       context: ./frontend
       dockerfile: Dockerfile

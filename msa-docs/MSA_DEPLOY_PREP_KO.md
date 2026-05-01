@@ -94,6 +94,11 @@
 | `CONCERT_SERVICE_BASE_URL` | `concert-service` 내부 주소 |
 | `USER_AUTH_INTERNAL_API_TOKEN` | 사용자 내부 API 호출 토큰 |
 | `CONCERT_INTERNAL_API_TOKEN` | 공연 내부 API 호출 토큰 |
+| `QUEUE_MAX_SEAT_CAPACITY` | 대기열 입장 가능 최대 좌석 수 |
+| `QUEUE_CLEANUP_SCHEDULER_DELAY_MS` | stale queue cleanup 스케줄러 지연 |
+| `QUEUE_ACTIVE_SEAT_SYNC_DELAY_MS` | active seat sync 스케줄러 지연 |
+| `QUEUE_REDIS_RETRY_MAX_ATTEMPTS` | Redis 재시도 최대 횟수 |
+| `QUEUE_REDIS_RETRY_WAIT_MILLIS` | Redis 재시도 대기 시간 |
 
 ### `ticketing-service`
 

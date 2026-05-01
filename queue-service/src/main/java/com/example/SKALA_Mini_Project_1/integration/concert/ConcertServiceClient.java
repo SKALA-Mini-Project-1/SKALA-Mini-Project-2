@@ -1,10 +1,12 @@
 package com.example.SKALA_Mini_Project_1.integration.concert;
 
+import com.example.SKALA_Mini_Project_1.modules.waiting.exception.DownstreamServiceException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 @Component
@@ -39,9 +41,7 @@ public class ConcertServiceClient {
                             }
                     )
                     .onStatus(HttpStatusCode::isError, (request, response) -> {
-                        throw new IllegalStateException(
-                                "Concert schedule validation failed with status: " + response.getStatusCode()
-                        );
+                        throw new DownstreamServiceException("concert-service 응답을 확인할 수 없습니다.");
                     })
                     .toBodilessEntity();
         } catch (RestClientResponseException e) {
@@ -51,7 +51,9 @@ public class ConcertServiceClient {
                         e
                 );
             }
-            throw new IllegalStateException("Concert schedule validation failed: " + e.getStatusCode(), e);
+            throw new DownstreamServiceException("concert-service 응답을 확인할 수 없습니다.", e);
+        } catch (RestClientException e) {
+            throw new DownstreamServiceException("concert-service 연결에 실패했습니다.", e);
         }
     }
 
@@ -69,9 +71,7 @@ public class ConcertServiceClient {
                             }
                     )
                     .onStatus(HttpStatusCode::isError, (request, response) -> {
-                        throw new IllegalStateException(
-                                "Concert artist lookup failed with status: " + response.getStatusCode()
-                        );
+                        throw new DownstreamServiceException("concert-service 응답을 확인할 수 없습니다.");
                     })
                     .body(Long.class);
         } catch (RestClientResponseException e) {
@@ -81,7 +81,9 @@ public class ConcertServiceClient {
                         e
                 );
             }
-            throw new IllegalStateException("Concert artist lookup failed: " + e.getStatusCode(), e);
+            throw new DownstreamServiceException("concert-service 응답을 확인할 수 없습니다.", e);
+        } catch (RestClientException e) {
+            throw new DownstreamServiceException("concert-service 연결에 실패했습니다.", e);
         }
     }
 }
