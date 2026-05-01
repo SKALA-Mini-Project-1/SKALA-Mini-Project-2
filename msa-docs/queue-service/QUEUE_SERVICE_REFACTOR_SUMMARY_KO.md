@@ -98,18 +98,34 @@
 
 - Redis fallback 단위 테스트 추가
 - 스케줄러 동작 시나리오 테스트 추가
-- 대기열 입장/상태/이탈 흐름 테스트 추가
 
 ### 작업 내용
 
 - Redis 장애 시 대기열 상태 조회와 entry token 소비가 어떻게 동작하는지 최소 단위 테스트를 추가했다.
 - 스케줄러가 stale member만 제거하고 active seat count를 다시 계산하는지 검증 테스트를 추가했다.
-- 대기열 입장, 상태 조회, 이탈의 기본 흐름과 schedule validation fallback 동작을 테스트로 고정했다.
 
 ### 적용내용
 
 - `QueueServiceTest` 추가
 - `QueueSchedulerTest` 추가
 - `ActiveSeatCleanupSchedulerTest` 추가
-- `MSA_DEPLOY_PREP_KO.md`에 queue-service 운영 환경변수 반영
 - `queue-service` 테스트 실행으로 리팩토링 결과 검증
+
+## 7. Fan Score 연동 확장
+
+### 작업목록
+
+- `queue-service`의 팬 점수 우선순위 로직 실제 연결
+- DB 직접 조회 없이 내부 API 기반 우선순위 계산 유지
+
+### 작업 내용
+
+- 리팩토링 당시 분리해둔 `QueuePriorityPolicy`를 실제 `Fan Score` 조회 지점으로 확장했다.
+- `queue-service`는 `concert-service`에서 `artistId`를 받고, `user-auth-service`에서 사용자별 아티스트 팬 점수를 조회한 뒤 우선순위에 반영한다.
+- 장애 상황에서는 대기열 기능을 우선 보장하기 위해 중립 우선순위로 fallback 하도록 유지했다.
+
+### 적용내용
+
+- `QueuePriorityPolicy`에 `concert-service`, `user-auth-service` internal API 호출 추가
+- `InternalArtistFanScoreResponse` 추가
+- `QueuePriorityPolicyTest` 추가
