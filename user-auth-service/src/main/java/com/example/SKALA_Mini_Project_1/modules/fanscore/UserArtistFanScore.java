@@ -63,4 +63,25 @@ public class UserArtistFanScore {
     @UpdateTimestamp
     @Column(name = "updated_at")
     private OffsetDateTime updatedAt;
+
+    public void addBookingScore(int delta) {
+        bookingScore = Math.max(0, getBookingScoreValue() + Math.max(delta, 0));
+        recomputeTotalScore();
+    }
+
+    public int getTotalScoreValue() {
+        return totalScore == null ? 0 : totalScore;
+    }
+
+    private int getBookingScoreValue() {
+        return bookingScore == null ? 0 : bookingScore;
+    }
+
+    private int getExternalScoreValue() {
+        return externalScore == null ? 0 : externalScore;
+    }
+
+    private void recomputeTotalScore() {
+        totalScore = Math.max(0, getBookingScoreValue() + getExternalScoreValue());
+    }
 }
