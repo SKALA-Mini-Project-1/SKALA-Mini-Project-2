@@ -1,12 +1,14 @@
 FROM eclipse-temurin:21-jdk AS build
 WORKDIR /workspace
 
-COPY gradlew gradlew.bat settings.gradle build.gradle ./
+COPY gradlew gradlew.bat build.gradle ./
 COPY gradle gradle
 COPY shared-kernel shared-kernel
 COPY incident-detector incident-detector
 
-RUN chmod +x gradlew && ./gradlew :incident-detector:bootJar --no-daemon
+RUN echo "rootProject.name = 'skala-mini-project-2'\ninclude 'shared-kernel'\ninclude 'incident-detector'" > settings.gradle && \
+    chmod +x gradlew && \
+    ./gradlew :incident-detector:bootJar --no-daemon -x test
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app

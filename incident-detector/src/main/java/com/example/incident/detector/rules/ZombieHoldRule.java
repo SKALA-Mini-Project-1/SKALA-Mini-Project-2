@@ -3,6 +3,8 @@ package com.example.incident.detector.rules;
 import com.example.incident.detector.kafka.TicketingEventMessage;
 import com.example.incident.detector.zombie.ZombieCandidate;
 import com.example.incident.detector.zombie.ZombieHoldCandidateRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,6 +32,7 @@ import java.util.UUID;
 public class ZombieHoldRule {
 
     private final ZombieHoldCandidateRepository candidateRepository;
+    private final ObjectMapper objectMapper;
 
     @Value("${detector.zombie.grace-period-seconds:60}")
     private int gracePeriodSeconds;
@@ -56,13 +59,22 @@ public class ZombieHoldRule {
         candidate.setChecked(false);
         candidate.setCreatedAt(now);
 
-        // userId, concertId, scheduleId는 payloadJson에서 파싱이 필요하지만
-        // ticketing.events.v1 메시지 스펙에 직접 포함되지 않아 null 저장.
-        // ZombieHoldChecker는 bookingId로 Redis key를 조회하는 대신
-        // payloadJson 파싱 or ticketing-service API 조회를 통해 보완 가능.
-        candidate.setUserId(null);
-        candidate.setConcertId(null);
-        candidate.setScheduleId(null);
+        Long userId = null;
+        Long concertId = null;
+        Long scheduleId = null;
+        if (event.payloadJson() != null) {
+            try {
+                JsonNode payload = objectMapper.readTree(event.payloadJson());
+                userId = payload.path("userId").isNull() ? null : payload.path("userId").asLong();
+                concertId = payload.path("concertId").isNull() ? null : payload.path("concertId").asLong();
+                scheduleId = payload.path("scheduleId").isNull() ? null : payload.path("scheduleId").asLong();
+            } catch (Exception e) {
+                log.warn("[zombie-hold] Failed to parse payloadJson. bookingId={}", event.bookingId());
+            }
+        }
+        candidate.setUserId(userId);
+        candidate.setConcertId(concertId);
+        candidate.setScheduleId(scheduleId);
 
         candidateRepository.save(candidate);
 
