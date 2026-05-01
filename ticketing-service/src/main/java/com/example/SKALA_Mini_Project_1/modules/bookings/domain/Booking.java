@@ -44,4 +44,7 @@ public class Booking {
 
     @Column(name = "canceled_at")
     private OffsetDateTime canceledAt;
+
+    @Column(name = "fan_score_applied_at")
+    private OffsetDateTime fanScoreAppliedAt;
 }

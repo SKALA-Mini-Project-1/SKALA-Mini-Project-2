@@ -1,10 +1,14 @@
 package com.example.SKALA_Mini_Project_1.modules.fanscore;
 
-import java.util.HashMap;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
+import com.example.SKALA_Mini_Project_1.integration.concert.ConcertServiceClient;
+import com.example.SKALA_Mini_Project_1.integration.userauth.UserAuthClient;
+import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository;
+import com.example.SKALA_Mini_Project_1.modules.fanscore.exception.FanScoreSyncException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,10 +21,10 @@ import lombok.extern.slf4j.Slf4j;
 @Transactional(readOnly = true)
 public class FanScoreService {
 
-    public static final int POINTS_PER_CONFIRMED_BOOKING = 1000;
-
-    private final UserArtistFanScoreRepository userArtistFanScoreRepository;
+    private final BookingRepository bookingRepository;
     private final FanScoreQueryRepository fanScoreQueryRepository;
+    private final ConcertServiceClient concertServiceClient;
+    private final UserAuthClient userAuthClient;
 
     @Transactional
     public void applyConfirmedBookingScore(UUID bookingId, Long userId) {
@@ -28,50 +32,60 @@ public class FanScoreService {
             return;
         }
 
-        Long artistId = fanScoreQueryRepository.findArtistIdByBookingId(bookingId).orElse(null);
-        if (artistId == null) {
-            return;
-        }
-
-        fanScoreQueryRepository.addBookingScore(userId, artistId, POINTS_PER_CONFIRMED_BOOKING);
+        OffsetDateTime referenceTime = nowUtc();
+        fanScoreQueryRepository.findEligibleConfirmedBookingTarget(bookingId, referenceTime)
+                .ifPresent(target -> applyTarget(target, referenceTime));
     }
 
     @Transactional
-    public void syncArtistFanScoresFromConfirmedBookings() {
-        List<FanScoreQueryRepository.ConfirmedArtistBookingCountRow> aggregates =
-                fanScoreQueryRepository.findConfirmedArtistBookingCounts();
+    public int syncArtistFanScoresFromConfirmedBookings() {
+        OffsetDateTime referenceTime = nowUtc();
+        List<FanScoreQueryRepository.ConfirmedBookingFanScoreTargetRow> targets =
+                fanScoreQueryRepository.findEligibleConfirmedBookingTargets(referenceTime);
 
-        Map<UserArtistKey, Integer> bookingScoreByKey = new HashMap<>();
-        for (FanScoreQueryRepository.ConfirmedArtistBookingCountRow row : aggregates) {
-            if (row.userId() == null || row.artistId() == null) {
-                continue;
+        int appliedCount = 0;
+        for (FanScoreQueryRepository.ConfirmedBookingFanScoreTargetRow target : targets) {
+            if (applyTarget(target, referenceTime)) {
+                appliedCount++;
             }
-
-            long count = row.confirmedBookingCount() == null ? 0L : row.confirmedBookingCount();
-            int calculatedScore = Math.toIntExact(Math.max(0L, count) * POINTS_PER_CONFIRMED_BOOKING);
-            bookingScoreByKey.put(new UserArtistKey(row.userId(), row.artistId()), calculatedScore);
         }
 
-        List<UserArtistFanScore> existingScores = userArtistFanScoreRepository.findAll();
-        for (UserArtistFanScore existingScore : existingScores) {
-            UserArtistKey key = new UserArtistKey(existingScore.getUserId(), existingScore.getArtistId());
-            Integer bookingScore = bookingScoreByKey.remove(key);
-            existingScore.replaceBookingScore(bookingScore == null ? 0 : bookingScore);
-        }
-
-        for (Map.Entry<UserArtistKey, Integer> entry : bookingScoreByKey.entrySet()) {
-            UserArtistKey key = entry.getKey();
-            UserArtistFanScore score = UserArtistFanScore.builder()
-                    .userId(key.userId())
-                    .artistId(key.artistId())
-                    .build();
-            score.replaceBookingScore(entry.getValue());
-            userArtistFanScoreRepository.save(score);
-        }
-
-        log.info("Artist fan score sync complete: {} aggregate rows processed", aggregates.size());
+        log.info("Fan score sync complete: {} booking targets applied", appliedCount);
+        return appliedCount;
     }
 
-    private record UserArtistKey(Long userId, Long artistId) {
+    private boolean applyTarget(
+            FanScoreQueryRepository.ConfirmedBookingFanScoreTargetRow target,
+            OffsetDateTime appliedAt
+    ) {
+        try {
+            Long artistId = concertServiceClient.getArtistIdForConcert(target.concertId());
+            if (artistId == null) {
+                return false;
+            }
+
+            userAuthClient.applyAttendanceConfirmedFanScore(
+                    target.userId(),
+                    target.bookingId(),
+                    target.concertId(),
+                    artistId,
+                    appliedAt
+            );
+            bookingRepository.markFanScoreApplied(target.bookingId(), appliedAt);
+            return true;
+        } catch (IllegalArgumentException | FanScoreSyncException e) {
+            log.warn(
+                    "Fan score sync skipped for bookingId={} userId={} concertId={}: {}",
+                    target.bookingId(),
+                    target.userId(),
+                    target.concertId(),
+                    e.getMessage()
+            );
+            return false;
+        }
+    }
+
+    private OffsetDateTime nowUtc() {
+        return OffsetDateTime.now(ZoneOffset.UTC);
     }
 }
