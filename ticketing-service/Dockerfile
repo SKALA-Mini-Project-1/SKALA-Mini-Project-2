@@ -8,6 +8,9 @@ COPY user-auth-service user-auth-service
 COPY concert-service concert-service
 COPY queue-service queue-service
 COPY payment-service payment-service
+COPY incident-detector incident-detector
+COPY incident-agent incident-agent
+COPY incident-api incident-api
 COPY ticketing-service ticketing-service
 
 RUN chmod +x gradlew && ./gradlew :ticketing-service:bootJar --no-daemon
