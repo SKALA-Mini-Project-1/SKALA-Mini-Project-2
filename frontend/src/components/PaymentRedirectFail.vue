@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted } from "vue";
+import { clearActivePaymentSession } from "../services/paymentSession";
 
 const emit = defineEmits<{
   navigate: [path: string];
@@ -9,6 +10,10 @@ const params = new URLSearchParams(window.location.search);
 const code = computed(() => String(params.get("code") ?? "PAYMENT_FAILED"));
 const message = computed(() => String(params.get("message") ?? "결제가 실패했습니다."));
 const orderId = computed(() => String(params.get("orderId") ?? ""));
+
+onMounted(() => {
+  clearActivePaymentSession();
+});
 </script>
 
 <template>

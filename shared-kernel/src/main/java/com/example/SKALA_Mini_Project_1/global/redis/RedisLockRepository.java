@@ -2,8 +2,12 @@ package com.example.SKALA_Mini_Project_1.global.redis;
 
 import java.time.Duration;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -20,6 +24,15 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class RedisLockRepository {
     private static final String LOCK_WITH_LIMIT_SCRIPT = """
+            local seatKeyPrefix = ARGV[5]
+            local holds = redis.call('SMEMBERS', KEYS[2])
+            for _, heldSeatId in ipairs(holds) do
+                local heldSeatKey = seatKeyPrefix .. heldSeatId
+                if redis.call('GET', heldSeatKey) ~= ARGV[1] then
+                    redis.call('SREM', KEYS[2], heldSeatId)
+                end
+            end
+
             local holdCount = tonumber(redis.call('SCARD', KEYS[2]) or '0')
             local maxHolds = tonumber(ARGV[2])
             if holdCount >= maxHolds then
@@ -88,7 +101,8 @@ public class RedisLockRepository {
                 userId,
                 String.valueOf(maxHoldCount),
                 String.valueOf(Duration.ofMinutes(5).toMillis()),
-                String.valueOf(seatId)
+                String.valueOf(seatId),
+                seatLockKeyPrefix(concertId, scheduleId)
         );
 
         if (result != null && result == 1L) {
@@ -115,6 +129,69 @@ public class RedisLockRepository {
         return deleted != null && deleted > 0;
     }
 
+    public record SeatLockInfo(String owner, Long ttlSeconds) {}
+
+    /**
+     * 좌석 목록에 대한 Redis 선점 정보를 2번의 왕복(MGET + pipeline TTL)으로 일괄 조회.
+     * 기존 좌석별 개별 호출(N×2회) 대신 사용해 성능을 대폭 개선.
+     */
+    public Map<Long, SeatLockInfo> batchGetSeatLockInfo(Long concertId, Long scheduleId, List<Long> seatIds) {
+        if (seatIds == null || seatIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        List<String> keys = seatIds.stream()
+                .map(seatId -> RedisKeyGenerator.seatLockKey(concertId, scheduleId, seatId))
+                .toList();
+
+        // 1) MGET: 모든 키의 owner를 한 번에 조회
+        List<String> owners = redisTemplate.opsForValue().multiGet(keys);
+
+        // 2) owner가 있는 좌석만 추려서 TTL 조회 대상으로 분류
+        List<Long> heldSeatIds = new ArrayList<>();
+        List<String> heldKeys = new ArrayList<>();
+        Map<Long, String> ownerMap = new HashMap<>();
+
+        for (int i = 0; i < seatIds.size(); i++) {
+            String owner = (owners != null) ? owners.get(i) : null;
+            if (owner != null) {
+                ownerMap.put(seatIds.get(i), owner);
+                heldSeatIds.add(seatIds.get(i));
+                heldKeys.add(keys.get(i));
+            }
+        }
+
+        if (heldSeatIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        // 3) Pipeline: 선점된 좌석의 TTL만 한 번에 조회
+        List<Object> ttlResults = redisTemplate.executePipelined((RedisConnection connection) -> {
+            for (String key : heldKeys) {
+                connection.keyCommands().ttl(key.getBytes(StandardCharsets.UTF_8));
+            }
+            return null;
+        });
+
+        Map<Long, Long> ttlMap = new HashMap<>();
+        for (int i = 0; i < heldSeatIds.size(); i++) {
+            Long ttl = (Long) ttlResults.get(i);
+            if (ttl != null && ttl > 0) {
+                ttlMap.put(heldSeatIds.get(i), ttl);
+            }
+        }
+
+        // 4) owner와 ttl이 모두 있는 경우만 결과에 포함 (기존 로직과 동일한 조건)
+        Map<Long, SeatLockInfo> result = new HashMap<>(ownerMap.size());
+        for (Map.Entry<Long, String> entry : ownerMap.entrySet()) {
+            Long ttl = ttlMap.get(entry.getKey());
+            if (ttl != null) {
+                result.put(entry.getKey(), new SeatLockInfo(entry.getValue(), ttl));
+            }
+        }
+        return result;
+    }
+
     public String getSeatOwner(Long concertId, Long scheduleId, Long seatId) {
         String key = RedisKeyGenerator.seatLockKey(concertId, scheduleId, seatId);
 
@@ -132,6 +209,7 @@ public class RedisLockRepository {
 
     public int countUserHeldSeats(Long concertId, Long scheduleId, String userId) {
         String holdSetKey = RedisKeyGenerator.seatUserHoldsKey(concertId, scheduleId, userId);
+        pruneStaleSeatReferences(concertId, scheduleId, userId, holdSetKey);
         Long holdCount = redisTemplate.opsForSet().size(holdSetKey);
         if (holdCount != null && holdCount > 0) {
             return holdCount.intValue();
@@ -174,9 +252,12 @@ public class RedisLockRepository {
                     continue;
                 }
                 String key = RedisKeyGenerator.seatLockKey(concertId, scheduleId, seatId);
-                if (unlockKeyIfOwnerAndRemoveHold(key, holdSetKey, userId, seatId)) {
+                String owner = redisTemplate.opsForValue().get(key);
+                if (userId.equals(owner) && unlockKeyIfOwnerAndRemoveHold(key, holdSetKey, userId, seatId)) {
                     released++;
+                    continue;
                 }
+                redisTemplate.opsForSet().remove(holdSetKey, seatIdRaw);
             }
             if (Boolean.FALSE.equals(redisTemplate.hasKey(holdSetKey))
                     || Long.valueOf(0L).equals(redisTemplate.opsForSet().size(holdSetKey))) {
@@ -209,6 +290,35 @@ public class RedisLockRepository {
         script.setResultType(Long.class);
         Long result = redisTemplate.execute(script, List.of(activeKey));
         return result == null ? 0L : result;
+    }
+
+    public void removeSeatFromUserHolds(Long concertId, Long scheduleId, Long seatId, String userId) {
+        String holdSetKey = RedisKeyGenerator.seatUserHoldsKey(concertId, scheduleId, userId);
+        redisTemplate.opsForSet().remove(holdSetKey, String.valueOf(seatId));
+        if (Long.valueOf(0L).equals(redisTemplate.opsForSet().size(holdSetKey))) {
+            redisTemplate.delete(holdSetKey);
+        }
+    }
+
+    private void pruneStaleSeatReferences(Long concertId, Long scheduleId, String userId, String holdSetKey) {
+        Set<String> seatIds = redisTemplate.opsForSet().members(holdSetKey);
+        if (seatIds == null || seatIds.isEmpty()) {
+            return;
+        }
+        for (String seatIdRaw : seatIds) {
+            String key = seatLockKeyPrefix(concertId, scheduleId) + seatIdRaw;
+            String owner = redisTemplate.opsForValue().get(key);
+            if (!userId.equals(owner)) {
+                redisTemplate.opsForSet().remove(holdSetKey, seatIdRaw);
+            }
+        }
+        if (Long.valueOf(0L).equals(redisTemplate.opsForSet().size(holdSetKey))) {
+            redisTemplate.delete(holdSetKey);
+        }
+    }
+
+    private String seatLockKeyPrefix(Long concertId, Long scheduleId) {
+        return "seat:concert:" + concertId + ":schedule:" + scheduleId + ":seatId:";
     }
 
     private Long parseSeatId(String seatKey) {

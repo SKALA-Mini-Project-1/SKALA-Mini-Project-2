@@ -4,12 +4,13 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ApiError } from '../services/api';
 import { createBooking } from '../services/booking';
 import {
-  getSeatMap,
-  getSeatMapBySchedule,
+  getSeatSectionDetailBySchedule,
+  getSeatSectionSummaryBySchedule,
   holdSeat,
   holdSeatsBatch,
   leaveSeatScreen,
-  type SeatMapItem
+  type SeatMapItem,
+  type SeatSectionSummaryItem
 } from '../services/seat';
 import type { Seat } from '../types';
 
@@ -46,12 +47,16 @@ const hasShownExpiryWarning = ref(false);
 const holdingSeatMap = ref<Record<string, boolean>>({});
 const seatStatusMap = ref<Record<string, string>>({});
 const seatIdMap = ref<Record<string, number>>({});
-const isSeatMapLoading = ref(false);
+const sectionSummaryMap = ref<Record<string, SeatSectionSummaryItem>>({});
+const isSeatSummaryLoading = ref(false);
+const isSectionSeatsLoading = ref(false);
+const loadedSectionId = ref<string | null>(null);
 const shouldSkipLeaveOnUnmount = ref(false);
 const hasSentLeave = ref(false);
 let timer: ReturnType<typeof setInterval> | null = null;
 const concertId = computed(() => Number(props.concertId ?? 1));
 const scheduleId = computed(() => (props.scheduleId ? Number(props.scheduleId) : null));
+const isSeatMapLoading = computed(() => isSeatSummaryLoading.value || isSectionSeatsLoading.value);
 
 const leaveSeatOnExit = async () => {
   if (shouldSkipLeaveOnUnmount.value || hasSentLeave.value) {
@@ -71,7 +76,7 @@ const leaveSeatOnExit = async () => {
 
 const redirectToMain = () => {
   void leaveSeatOnExit();
-  window.location.href = 'http://localhost:5173/main';
+  window.location.href = '/main';
 };
 
 const centerX = 50;
@@ -157,15 +162,72 @@ const secondFloorSections = [
   )
 ];
 
-const sections: SectionMeta[] = [...floorSections, ...firstFloorSections, ...secondFloorSections];
+const baseSections: SectionMeta[] = [...floorSections, ...firstFloorSections, ...secondFloorSections];
 
 const toneClassMap: Record<SectionMeta['tone'], string> = {
-  violet: 'border-violet-300 bg-violet-100 text-violet-900 hover:bg-violet-200',
-  emerald: 'border-emerald-300 bg-emerald-100 text-emerald-900 hover:bg-emerald-200',
-  sky: 'border-sky-300 bg-sky-100 text-sky-900 hover:bg-sky-200',
-  amber: 'border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-200',
-  slate: 'border-slate-300 bg-slate-200 text-slate-900 hover:bg-slate-300'
+  amber:   'border-2 border-amber-500 bg-amber-400 text-white hover:bg-amber-300 shadow-lg shadow-amber-200',
+  violet:  'border-2 border-orange-600 bg-orange-500 text-white hover:bg-orange-400 shadow-lg shadow-orange-200',
+  sky:     'border-2 border-yellow-400 bg-yellow-300 text-yellow-900 hover:bg-yellow-200 shadow-md shadow-yellow-100',
+  emerald: 'border-2 border-emerald-500 bg-emerald-400 text-white hover:bg-emerald-300',
+  slate:   'border-2 border-slate-400 bg-slate-300 text-slate-900 hover:bg-slate-200'
 };
+
+const resolveSectionToneFromGrade = (grade?: string): SectionMeta['tone'] => {
+  if (grade === 'VIP') {
+    return 'amber';
+  }
+  if (grade === 'R') {
+    return 'violet';
+  }
+  if (grade === 'S') {
+    return 'sky';
+  }
+  return 'slate';
+};
+
+const buildDynamicSection = (summary: SeatSectionSummaryItem, index: number): SectionMeta => ({
+  id: summary.section,
+  x: 16 + (index % 6) * 13.5,
+  y: 22 + Math.floor(index / 6) * 12.5,
+  angle: 0,
+  floor: 'FLOOR',
+  grade: summary.grade,
+  price: summary.price,
+  tone: resolveSectionToneFromGrade(summary.grade),
+  totalSeats: summary.seatCount,
+  rows: summary.rowCount,
+  cols: summary.colCount
+});
+
+const sections = computed(() => {
+  const summaries = Object.values(sectionSummaryMap.value);
+  if (summaries.length === 0) {
+    return baseSections;
+  }
+
+  const summaryById = sectionSummaryMap.value;
+  const mergedKnownSections = baseSections
+    .filter((section) => Boolean(summaryById[section.id]))
+    .map((section) => {
+      const summary = summaryById[section.id];
+      return {
+        ...section,
+        grade: summary.grade || section.grade,
+        price: summary.price ?? section.price,
+        totalSeats: summary.seatCount ?? section.totalSeats,
+        rows: summary.rowCount ?? section.rows,
+        cols: summary.colCount ?? section.cols,
+        tone: resolveSectionToneFromGrade(summary.grade || section.grade)
+      };
+    });
+
+  const knownSectionIds = new Set(baseSections.map((section) => section.id));
+  const dynamicSections = summaries
+    .filter((summary) => !knownSectionIds.has(summary.section))
+    .map((summary, index) => buildDynamicSection(summary, index));
+
+  return [...mergedKnownSections, ...dynamicSections];
+});
 
 onMounted(() => {
   shouldSkipLeaveOnUnmount.value = false;
@@ -189,7 +251,7 @@ onMounted(() => {
     timeLeft.value -= 1;
   }, 1000);
 
-  void loadSeatMap();
+  void loadSeatSummary();
   window.addEventListener('pagehide', leaveSeatOnExit);
 });
 
@@ -208,44 +270,69 @@ const formatTime = (seconds: number) => {
 };
 
 const buildSeatKey = (section: string, row: number, col: number) => `${section}-${row}-${col}`;
+const getEffectiveSeatStatus = (seat: Pick<SeatMapItem, 'status' | 'displayStatus'>) => seat.displayStatus ?? seat.status;
+const isSeatBlocked = (status?: string) => status === 'RESERVED' || status === 'HELD_BY_OTHER';
 
-const loadSeatMap = async () => {
-  isSeatMapLoading.value = true;
+const applySeatAccessTtl = (seatAccessTtlSeconds?: number) => {
+  const serverTtl = Math.floor(Number(seatAccessTtlSeconds ?? 0));
+  if (Number.isFinite(serverTtl) && serverTtl > 0) {
+    initialTimeLeft.value = serverTtl;
+    timeLeft.value = serverTtl;
+    hasShownExpiryWarning.value = false;
+    showExpiryWarningModal.value = false;
+  }
+};
+
+const loadSeatSummary = async () => {
+  if (!scheduleId.value) {
+    return;
+  }
+
+  isSeatSummaryLoading.value = true;
   try {
-    const response = scheduleId.value
-      ? await getSeatMapBySchedule(scheduleId.value)
-      : await getSeatMap(concertId.value);
-    const nextStatusMap: Record<string, string> = {};
-    const nextSeatIdMap: Record<string, number> = {};
+    const response = await getSeatSectionSummaryBySchedule(scheduleId.value);
+    const nextSummaryMap = response.sections.reduce<Record<string, SeatSectionSummaryItem>>((acc, section) => {
+      acc[section.section] = section;
+      return acc;
+    }, {});
+
+    sectionSummaryMap.value = nextSummaryMap;
+    applySeatAccessTtl(response.seatAccessTtlSeconds);
+
+  } catch (error) {
+    console.error('좌석 구역 요약 조회 실패', error);
+  } finally {
+    isSeatSummaryLoading.value = false;
+  }
+};
+
+const loadSectionSeatMap = async (sectionId: string) => {
+  if (!scheduleId.value) {
+    return;
+  }
+
+  isSectionSeatsLoading.value = true;
+  try {
+    const response = await getSeatSectionDetailBySchedule(scheduleId.value, sectionId);
+    const nextStatusMap = { ...seatStatusMap.value };
+    const nextSeatIdMap = { ...seatIdMap.value };
 
     response.seats.forEach((seat: SeatMapItem) => {
       const key = buildSeatKey(seat.section, seat.rowNumber, seat.seatNumber);
-      nextStatusMap[key] = seat.status;
+      nextStatusMap[key] = getEffectiveSeatStatus(seat);
       nextSeatIdMap[key] = seat.seatId;
     });
 
     seatStatusMap.value = nextStatusMap;
     seatIdMap.value = nextSeatIdMap;
+    loadedSectionId.value = sectionId;
+    applySeatAccessTtl(response.seatAccessTtlSeconds);
 
-    const serverTtl = Math.floor(Number(response.seatAccessTtlSeconds ?? 0));
-    if (Number.isFinite(serverTtl) && serverTtl > 0) {
-      initialTimeLeft.value = serverTtl;
-      timeLeft.value = serverTtl;
-      hasShownExpiryWarning.value = false;
-      showExpiryWarningModal.value = false;
-    }
-
-    console.debug('[SeatSelection] seat map loaded', {
-      concertId: concertId.value,
-      scheduleId: scheduleId.value,
-      seatResponseCount: response.seats.length,
-      statusKeyCount: Object.keys(nextStatusMap).length,
-      seatIdKeyCount: Object.keys(nextSeatIdMap).length
-    });
   } catch (error) {
-    console.error('좌석 상태 조회 실패', error);
+    console.error('좌석 구역 상세 조회 실패', error);
+    alert(error instanceof Error ? error.message : '좌석 구역 정보를 불러오지 못했습니다.');
   } finally {
-    isSeatMapLoading.value = false;
+    isSectionSeatsLoading.value = false;
   }
 };
 
@@ -257,19 +344,22 @@ const totalAmount = computed(() => selectedSeats.value.reduce((sum, seat) => sum
 
 const currentSectionSeats = computed(() => {
   if (!selectedSection.value) {
-    return [] as Array<{ row: number; col: number; id: string; isOccupied: boolean; isSelected: boolean }>;
+    return [] as Array<{ row: number; col: number; id: string; status: string; isOccupied: boolean; isSelected: boolean }>;
+  }
+  if (loadedSectionId.value !== selectedSection.value.id) {
+    return [] as Array<{ row: number; col: number; id: string; status: string; isOccupied: boolean; isSelected: boolean }>;
   }
 
   const { id, rows, cols } = selectedSection.value;
-  const seats: Array<{ row: number; col: number; id: string; isOccupied: boolean; isSelected: boolean }> = [];
+  const seats: Array<{ row: number; col: number; id: string; status: string; isOccupied: boolean; isSelected: boolean }> = [];
 
   for (let row = 1; row <= rows; row += 1) {
     for (let col = 1; col <= cols; col += 1) {
       const seatId = buildSeatKey(id, row, col);
-      const status = seatStatusMap.value[seatId];
-      const isOccupied = status === 'RESERVED';
+      const status = seatStatusMap.value[seatId] ?? 'AVAILABLE';
+      const isOccupied = isSeatBlocked(status);
       const isSelected = selectedSeats.value.some((seat) => seat.id === seatId);
-      seats.push({ row, col, id: seatId, isOccupied, isSelected });
+      seats.push({ row, col, id: seatId, status, isOccupied, isSelected });
     }
   }
 
@@ -277,10 +367,10 @@ const currentSectionSeats = computed(() => {
 });
 
 const seatStateMap = computed(() => {
-  const map = new Map<string, { isOccupied: boolean; isSelected: boolean }>();
+  const map = new Map<string, { status: string; isOccupied: boolean; isSelected: boolean }>();
 
   currentSectionSeats.value.forEach((seat) => {
-    map.set(seat.id, { isOccupied: seat.isOccupied, isSelected: seat.isSelected });
+    map.set(seat.id, { status: seat.status, isOccupied: seat.isOccupied, isSelected: seat.isSelected });
   });
 
   return map;
@@ -288,10 +378,10 @@ const seatStateMap = computed(() => {
 
 const getSeatState = (row: number, col: number) => {
   if (!selectedSection.value) {
-    return { isOccupied: false, isSelected: false };
+    return { status: 'AVAILABLE', isOccupied: false, isSelected: false };
   }
 
-  return seatStateMap.value.get(`${selectedSection.value.id}-${row}-${col}`) ?? { isOccupied: false, isSelected: false };
+  return seatStateMap.value.get(`${selectedSection.value.id}-${row}-${col}`) ?? { status: 'AVAILABLE', isOccupied: false, isSelected: false };
 };
 
 const setHolding = (seatId: string, isHolding: boolean) => {
@@ -314,8 +404,12 @@ const addSelectedSeat = (seat: Seat) => {
   selectedSeats.value = [...selectedSeats.value, seat];
 };
 
-const goToSection = (section: SectionMeta) => {
+const goToSection = async (section: SectionMeta) => {
   selectedSection.value = section;
+  if (loadedSectionId.value === section.id) {
+    return;
+  }
+  await loadSectionSeatMap(section.id);
 };
 
 const resetSection = () => {
@@ -328,7 +422,7 @@ const toggleSeat = async (row: number, col: number) => {
   }
 
   const seatId = buildSeatKey(selectedSection.value.id, row, col);
-  const isOccupied = seatStatusMap.value[seatId] === 'RESERVED';
+  const isOccupied = isSeatBlocked(seatStatusMap.value[seatId]);
 
   if (isOccupied) {
     return;
@@ -375,6 +469,9 @@ const toggleSeat = async (row: number, col: number) => {
   } catch (error) {
     if (error instanceof ApiError && error.status === 409) {
       showConflictModal.value = true;
+      if (selectedSection.value) {
+        void loadSectionSeatMap(selectedSection.value.id);
+      }
       return;
     }
 
@@ -422,7 +519,7 @@ const removeSeat = async (seat: Seat) => {
 const gradeLegend = computed(() => {
   const map = new Map<string, { grade: string; price: number; tone: SectionMeta['tone'] }>();
 
-  sections.forEach((section) => {
+  sections.value.forEach((section) => {
     if (!map.has(section.grade)) {
       map.set(section.grade, {
         grade: section.grade,
@@ -435,7 +532,14 @@ const gradeLegend = computed(() => {
   return Array.from(map.values());
 });
 
-const totalVenueSeats = computed(() => sections.reduce((sum, section) => sum + section.totalSeats, 0));
+const totalVenueSeats = computed(() => {
+  const summarizedSeatCount = Object.values(sectionSummaryMap.value)
+    .reduce((sum, section) => sum + section.seatCount, 0);
+  if (summarizedSeatCount > 0) {
+    return summarizedSeatCount;
+  }
+  return sections.value.reduce((sum, section) => sum + section.totalSeats, 0);
+});
 
 const completeSeatSelection = async () => {
   if (isSeatMapLoading.value) {
@@ -467,14 +571,6 @@ const completeSeatSelection = async () => {
 
   const missingMappings = resolvedSeatMappings.filter((item) => !Number.isFinite(item.resolvedSeatId));
 
-  console.debug('[SeatSelection] complete selection mapping result', {
-    selectedSeatCount: selectedSeats.value.length,
-    mappedSeatIdCount: seatIds.length,
-    selectedSeatKeys: resolvedSeatMappings.map((item) => item.key),
-    missingSeatKeys: missingMappings.map((item) => item.key),
-    sampleSeatIdEntries: Object.entries(seatIdMap.value).slice(0, 20)
-  });
-
   if (seatIds.length !== selectedSeats.value.length) {
     console.error('[SeatSelection] seatId mapping failed', {
       concertId: concertId.value,
@@ -501,7 +597,8 @@ const completeSeatSelection = async () => {
 </script>
 
 <template>
-  <div class="flex min-h-[calc(100vh-140px)] flex-col">
+  <div class="flex min-h-[calc(100vh-140px)] flex-col bg-[#fff8f0]">
+    <!-- 타이머 바 -->
     <div class="sticky top-0 z-20 flex items-center justify-between bg-[#1f2937] px-4 py-2 text-white">
       <div class="flex items-center space-x-2">
         <span class="animate-pulse font-bold text-[#f59e0b]">●</span>
@@ -513,74 +610,157 @@ const completeSeatSelection = async () => {
         콘서트 {{ props.concertId || '-' }} · 회차 {{ props.scheduleId || '-' }}
       </div>
     </div>
-    <div class="h-1 w-full bg-slate-800"><div class="h-full bg-gradient-to-r from-[#f59e0b] to-[#ef4444] transition-[width] duration-1000" :style="{ width: progressWidth }"></div></div>
+    <div class="h-1 w-full bg-slate-800">
+      <div class="h-full bg-gradient-to-r from-[#f59e0b] to-[#ef4444] transition-[width] duration-1000" :style="{ width: progressWidth }"></div>
+    </div>
 
     <div class="flex flex-1 flex-col overflow-hidden lg:flex-row">
-      <div class="relative flex flex-1 items-center justify-center overflow-auto bg-slate-100 p-3 md:p-8">
-        <div v-if="!selectedSection" class="w-full max-w-[1100px] rounded-xl bg-white p-4 shadow-xl md:p-7">
-          <div class="relative top-6 z-20 mx-auto mb-0 flex h-16 w-full max-w-[520px] items-center justify-center rounded-lg bg-slate-900 text-3xl font-black tracking-[0.2em] text-white">STAGE</div>
 
-          <div class="relative z-10 mx-auto h-[680px] max-w-[980px] overflow-hidden rounded-2xl bg-gradient-to-b from-white via-slate-50 to-slate-100">
-            <div class="absolute left-[8%] top-[14%] rounded-full bg-white/80 px-3 py-1 text-xs font-bold text-slate-500">2F</div>
-            <div class="absolute left-[22%] top-[14%] rounded-full bg-white/80 px-3 py-1 text-xs font-bold text-slate-500">1F</div>
-            <div class="absolute left-1/2 top-[14%] -translate-x-1/2 -translate-y-[2px] rounded-full bg-white/80 px-3 py-1 text-xs font-bold text-slate-500">FLOOR</div>
-            <div class="absolute right-[22%] top-[14%] rounded-full bg-white/80 px-3 py-1 text-xs font-bold text-slate-500">1F</div>
-            <div class="absolute right-[8%] top-[14%] rounded-full bg-white/80 px-3 py-1 text-xs font-bold text-slate-500">2F</div>
+      <!-- ─── 좌석 맵 영역 ─── -->
+      <div class="relative flex flex-1 items-center justify-center overflow-auto bg-[#fff8f0] p-3 md:p-6">
 
+        <!-- ── 구역 전체 지도 ── -->
+        <div v-if="!selectedSection" class="w-full max-w-[1060px]">
+
+          <!-- STAGE -->
+          <div class="relative z-20 mx-auto mb-0 flex w-full max-w-[500px] items-center justify-center rounded-t-2xl bg-gradient-to-r from-orange-500 via-amber-400 to-orange-500 py-3 text-2xl font-black tracking-[0.28em] text-white shadow-lg">
+            S T A G E
+          </div>
+
+          <!-- 공연장 컨테이너: 밝은 크림 배경 + 동심 구역선 -->
+          <div class="relative mx-auto h-[660px] max-w-[960px] overflow-hidden rounded-b-[60px] rounded-t-none border border-orange-200 bg-gradient-to-b from-orange-50 to-amber-50 shadow-inner">
+
+            <!-- 상단 무대 잔광 -->
+            <div class="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-amber-100/60 to-transparent"></div>
+
+            <!-- 구역 경계 원호 (장식) -->
+            <div
+              class="pointer-events-none absolute rounded-full border-2 border-orange-200/70"
+              style="width:60%;height:60%;left:20%;top:-4%;"
+            ></div>
+            <div
+              class="pointer-events-none absolute rounded-full border-2 border-orange-100/80"
+              style="width:94%;height:94%;left:3%;top:-4%;"
+            ></div>
+
+            <!-- 구역 레이블 -->
+            <div class="absolute left-[7%]  top-[12%] rounded-full bg-white/70 px-2.5 py-0.5 text-[11px] font-bold text-orange-400 shadow-sm">2F</div>
+            <div class="absolute left-[21%] top-[12%] rounded-full bg-white/70 px-2.5 py-0.5 text-[11px] font-bold text-orange-500 shadow-sm">1F</div>
+            <div class="absolute left-1/2 top-[12%] -translate-x-1/2 rounded-full bg-white/70 px-2.5 py-0.5 text-[11px] font-bold text-amber-600 shadow-sm">FLOOR</div>
+            <div class="absolute right-[21%] top-[12%] rounded-full bg-white/70 px-2.5 py-0.5 text-[11px] font-bold text-orange-500 shadow-sm">1F</div>
+            <div class="absolute right-[7%]  top-[12%] rounded-full bg-white/70 px-2.5 py-0.5 text-[11px] font-bold text-orange-400 shadow-sm">2F</div>
+
+            <!-- 구역 버튼
+                 ✅ clip-path 제거, rotate 제거 → 마름모꼴 없이 자연스러운 직사각형 배치 -->
             <button
               v-for="section in sections"
               :key="section.id"
-              class="absolute -translate-x-1/2 -translate-y-1/2 border text-lg font-black shadow-sm transition-all hover:scale-105"
-              :class="[toneClassMap[section.tone], section.floor === 'FLOOR' ? 'h-[68px] w-[88px] rounded-md' : 'h-[74px] w-[86px] [clip-path:polygon(18%_0%,82%_0%,100%_100%,0%_100%)]']"
-              :style="{ left: `${section.x}%`, top: `${section.y}%`, transform: `translate(-50%, -50%) rotate(${section.angle}deg)` }"
+              class="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer font-black transition-all duration-150 hover:z-10 hover:scale-110 hover:brightness-110"
+              :class="[
+                toneClassMap[section.tone],
+                section.floor === 'FLOOR'
+                  ? 'h-[70px] w-[88px] rounded-xl text-2xl'
+                  : section.floor === '1F'
+                    ? 'h-[58px] w-[72px] rounded-lg text-xl'
+                    : 'h-[52px] w-[65px] rounded-lg text-lg'
+              ]"
+              :disabled="isSeatSummaryLoading"
+              :style="{ left: `${section.x}%`, top: `${section.y}%` }"
               @click="goToSection(section)"
             >
-              <span
-                class="mx-auto block text-center"
-                :class="section.floor === 'FLOOR' ? 'pt-5 text-3xl' : '[text-orientation:upright] [writing-mode:vertical-rl]'"
-              >
-                {{ section.id }}
-              </span>
+              <span class="block text-center leading-none">{{ section.id }}</span>
             </button>
           </div>
 
-          <div class="mt-4 mb-3 flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            <span class="font-semibold">공연장 총 좌석</span>
-            <span class="font-black text-slate-800">{{ totalVenueSeats.toLocaleString() }}석</span>
+          <div v-if="isSeatSummaryLoading" class="mt-4 rounded-lg border border-orange-200 bg-white px-4 py-3 text-center text-sm font-semibold text-orange-600 shadow-sm">
+            좌석 구역 정보를 불러오는 중입니다...
           </div>
-          <div class="grid grid-cols-2 gap-2 text-xs text-slate-600 md:grid-cols-5">
-            <div v-for="legend in gradeLegend" :key="legend.grade" class="flex items-center rounded border border-slate-200 bg-white px-2 py-1.5">
-              <span class="mr-2 inline-block h-3 w-3 rounded-full" :class="legend.tone === 'amber' ? 'bg-amber-400' : legend.tone === 'violet' ? 'bg-violet-400' : legend.tone === 'sky' ? 'bg-sky-400' : legend.tone === 'emerald' ? 'bg-emerald-400' : 'bg-slate-400'"></span>
-              <span class="font-semibold">{{ legend.grade }}</span>
-              <span class="ml-auto">{{ legend.price.toLocaleString() }}원</span>
+
+          <!-- 총 좌석 수 -->
+          <div class="mt-4 mb-3 flex items-center justify-between rounded-lg border border-orange-200 bg-white px-4 py-2 text-xs text-slate-600 shadow-sm">
+            <span class="font-semibold">공연장 총 좌석</span>
+            <span class="font-black text-orange-600">{{ totalVenueSeats.toLocaleString() }}석</span>
+          </div>
+
+          <!-- 등급 범례 -->
+          <div class="grid grid-cols-2 gap-2 text-xs md:grid-cols-5">
+            <div
+              v-for="legend in gradeLegend"
+              :key="legend.grade"
+              class="flex items-center rounded-lg border border-orange-100 bg-white px-3 py-2 shadow-sm"
+            >
+              <span
+                class="mr-2 inline-block h-3 w-3 rounded-full"
+                :class="
+                  legend.tone === 'amber'  ? 'bg-amber-400' :
+                  legend.tone === 'violet' ? 'bg-orange-500' :
+                  legend.tone === 'sky'    ? 'bg-yellow-300' :
+                  'bg-slate-300'
+                "
+              ></span>
+              <span class="font-semibold text-slate-700">{{ legend.grade }}</span>
+              <span class="ml-auto text-slate-500">{{ legend.price.toLocaleString() }}원</span>
             </div>
           </div>
         </div>
 
-        <div v-else class="w-full max-w-[820px] rounded-xl bg-white p-4 shadow-xl md:p-8">
-          <div class="mb-6 flex items-center justify-between border-b pb-4">
+        <!-- ── 구역 내 개별 좌석 ── -->
+        <div v-else class="w-full max-w-[820px] rounded-2xl border border-orange-200 bg-white p-4 shadow-xl md:p-8">
+          <div class="mb-5 flex items-center justify-between border-b border-orange-100 pb-4">
             <div>
-              <h3 class="text-base font-bold md:text-xl">{{ selectedSection.id }}구역 좌석배치도</h3>
-              <p class="text-xs text-slate-500 md:text-sm">{{ selectedSection.floor }} · {{ selectedSection.grade }}석 · {{ selectedSection.totalSeats.toLocaleString() }}석 · {{ selectedSection.price.toLocaleString() }}원</p>
+              <h3 class="text-base font-bold text-slate-800 md:text-xl">{{ selectedSection.id }}구역 좌석배치도</h3>
+              <p class="text-xs text-slate-500 md:text-sm">
+                {{ selectedSection.floor }} · {{ selectedSection.grade }}석 ·
+                {{ selectedSection.totalSeats.toLocaleString() }}석 ·
+                {{ selectedSection.price.toLocaleString() }}원
+              </p>
             </div>
-            <button class="text-xs text-slate-500 underline hover:text-slate-800 md:text-sm" @click="resetSection">전체 구역도로 돌아가기</button>
+            <button class="rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-600 hover:bg-orange-100 md:text-sm" @click="resetSection">
+              ← 전체 구역도
+            </button>
           </div>
 
-          <div class="space-y-1.5 sm:space-y-2">
+          <!-- 무대 방향 표시 -->
+          <div class="mb-5 text-center">
+            <div class="mx-auto inline-block rounded-lg bg-gradient-to-r from-orange-500 to-amber-400 px-10 py-1.5 text-xs font-black tracking-widest text-white shadow-md">
+              STAGE
+            </div>
+          </div>
+
+          <!-- 좌석 그리드 -->
+          <div v-if="isSectionSeatsLoading" class="rounded-xl border border-orange-100 bg-orange-50 px-4 py-12 text-center text-sm font-semibold text-orange-600">
+            {{ selectedSection.id }}구역 좌석 정보를 불러오는 중입니다...
+          </div>
+          <div v-else-if="currentSectionSeats.length === 0" class="rounded-xl border border-orange-100 bg-orange-50 px-4 py-12 text-center text-sm font-semibold text-orange-600">
+            {{ selectedSection.id }}구역 좌석 정보가 없습니다.
+          </div>
+          <div v-else class="space-y-1.5 sm:space-y-2">
             <div
               v-for="row in selectedSection.rows"
               :key="row"
-              class="grid items-center gap-1.5 sm:gap-2"
+              class="grid items-center gap-1 sm:gap-1.5"
               :style="{ gridTemplateColumns: `28px repeat(${selectedSection.cols}, minmax(0, 1fr))` }"
             >
-              <div class="text-center text-[10px] font-bold text-slate-500 sm:text-xs">{{ row }}</div>
+              <div class="text-center text-[10px] font-bold text-slate-400 sm:text-xs">{{ row }}</div>
               <button
                 v-for="col in selectedSection.cols"
                 :key="`${selectedSection.id}-${row}-${col}`"
                 class="flex h-7 items-center justify-center rounded border text-[10px] transition-colors sm:h-8"
-                :class="isHoldingSeat(`${selectedSection.id}-${row}-${col}`) ? 'cursor-wait border-slate-300 bg-slate-100 text-slate-400' : getSeatState(row, col).isOccupied ? 'cursor-not-allowed border-slate-300 bg-slate-200 text-slate-400' : getSeatState(row, col).isSelected ? 'border-[#f97316] bg-[#f97316] font-bold text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-orange-50'"
+                :class="
+                  isHoldingSeat(`${selectedSection.id}-${row}-${col}`)
+                    ? 'cursor-wait border-orange-200 bg-orange-100 text-orange-300'
+                    : getSeatState(row, col).status === 'HELD_BY_OTHER'
+                      ? 'cursor-not-allowed border-amber-200 bg-amber-50 text-amber-400'
+                      : getSeatState(row, col).status === 'RESERVED'
+                        ? 'cursor-not-allowed border-slate-300 bg-slate-300 text-slate-500'
+                      : getSeatState(row, col).isOccupied
+                      ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-300'
+                      : getSeatState(row, col).isSelected
+                        ? 'border-orange-500 bg-orange-500 font-bold text-white shadow-md shadow-orange-200'
+                        : 'border-orange-200 bg-white text-slate-600 hover:border-orange-400 hover:bg-orange-50'
+                "
                 :disabled="getSeatState(row, col).isOccupied || isHoldingSeat(`${selectedSection.id}-${row}-${col}`)"
-                :title="`${row}열 ${col}번`"
+                :title="`${row}열 ${col}번${getSeatState(row, col).status === 'HELD_BY_OTHER' ? ' · 다른 사용자가 선점 중' : getSeatState(row, col).status === 'RESERVED' ? ' · 예매 완료' : ''}`"
                 @click="toggleSeat(row, col)"
               >
                 {{ col }}
@@ -588,41 +768,67 @@ const completeSeatSelection = async () => {
             </div>
           </div>
 
-          <div class="mt-6 flex flex-wrap justify-center gap-4 text-xs text-slate-600 sm:space-x-6">
-            <div class="flex items-center"><div class="mr-2 h-4 w-4 rounded border border-[#f97316] bg-[#f97316]"></div>선택</div>
-            <div class="flex items-center"><div class="mr-2 h-4 w-4 rounded border border-slate-300 bg-white"></div>선택가능</div>
-            <div class="flex items-center"><div class="mr-2 h-4 w-4 rounded border border-slate-300 bg-slate-200"></div>선택불가</div>
+          <!-- 범례 -->
+          <div class="mt-6 flex flex-wrap justify-center gap-5 text-xs text-slate-500">
+            <div class="flex items-center gap-1.5">
+              <div class="h-4 w-4 rounded border border-orange-500 bg-orange-500"></div>선택
+            </div>
+            <div class="flex items-center gap-1.5">
+              <div class="h-4 w-4 rounded border border-orange-200 bg-white"></div>선택가능
+            </div>
+            <div class="flex items-center gap-1.5">
+              <div class="h-4 w-4 rounded border border-amber-200 bg-amber-50"></div>다른 사용자 선점중
+            </div>
+            <div class="flex items-center gap-1.5">
+              <div class="h-4 w-4 rounded border border-slate-300 bg-slate-300"></div>예매 완료
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="z-10 flex w-full flex-col border-t border-slate-200 bg-white shadow-[-4px_0_15px_rgba(0,0,0,0.05)] lg:w-[320px] lg:border-l lg:border-t-0">
-        <div class="flex items-center justify-between bg-slate-800 p-4 font-bold text-white"><span>선택좌석</span><span class="text-[#f59e0b]">{{ selectedSeats.length }}석</span></div>
+      <!-- ─── 우측 선택 사이드바 ─── -->
+      <div class="z-10 flex w-full flex-col border-t border-orange-200 bg-white shadow-[-4px_0_12px_rgba(0,0,0,0.06)] lg:w-[320px] lg:border-l lg:border-t-0">
+        <div class="flex items-center justify-between bg-orange-500 p-4 font-bold text-white">
+          <span>선택 좌석</span>
+          <span class="rounded-full bg-white/20 px-3 py-0.5 text-sm">{{ selectedSeats.length }}석</span>
+        </div>
 
         <div class="flex-1 space-y-3 overflow-y-auto p-4">
-          <div v-if="selectedSeats.length === 0" class="py-10 text-center text-sm text-slate-400">좌석을 선택해주세요.</div>
+          <div v-if="selectedSeats.length === 0" class="py-10 text-center text-sm text-slate-400">
+            좌석을 선택해주세요.
+          </div>
           <div
             v-for="seat in selectedSeats"
             :key="seat.id"
-            class="group relative rounded border border-slate-200 bg-white p-3 shadow-sm"
+            class="group relative rounded-xl border border-orange-100 bg-orange-50 p-3"
           >
             <button class="absolute right-2 top-2 text-slate-400 hover:text-red-500" @click="removeSeat(seat)">
               <X :size="16" />
             </button>
             <div class="mb-1 flex items-center">
-              <span class="mr-2 h-2 w-2 rounded-full" :class="seat.grade === 'VIP' ? 'bg-amber-500' : seat.grade === 'R' ? 'bg-violet-500' : seat.grade === 'S' ? 'bg-sky-500' : seat.grade === 'A' ? 'bg-emerald-500' : 'bg-slate-500'"></span>
+              <span
+                class="mr-2 h-2 w-2 rounded-full"
+                :class="seat.grade === 'VIP' ? 'bg-amber-400' : seat.grade === 'R' ? 'bg-orange-500' : 'bg-yellow-400'"
+              ></span>
               <span class="text-sm font-bold text-slate-800">{{ seat.grade }}</span>
             </div>
-            <div class="mb-1 text-xs text-slate-600">{{ seat.section }}구역 {{ seat.row }}열 {{ seat.col }}번</div>
-            <div class="text-right font-bold text-slate-800">{{ seat.price.toLocaleString() }}원</div>
+            <div class="mb-1 text-xs text-slate-500">{{ seat.section }}구역 {{ seat.row }}열 {{ seat.col }}번</div>
+            <div class="text-right font-bold text-orange-600">{{ seat.price.toLocaleString() }}원</div>
           </div>
         </div>
 
-        <div class="border-t border-slate-200 bg-slate-50 p-4">
-          <div class="mb-4 flex items-center justify-between"><span class="text-sm font-bold text-slate-800">총 결제금액</span><span class="text-xl font-bold text-[#f97316]">{{ totalAmount.toLocaleString() }}원</span></div>
+        <div class="border-t border-orange-100 bg-orange-50 p-4">
+          <div class="mb-4 flex items-center justify-between">
+            <span class="text-sm font-bold text-slate-700">총 결제금액</span>
+            <span class="text-xl font-bold text-orange-600">{{ totalAmount.toLocaleString() }}원</span>
+          </div>
           <button
-            class="w-full rounded py-4 text-lg font-bold transition-all"
-            :class="selectedSeats.length > 0 && !isSeatMapLoading ? 'bg-[#f97316] text-white shadow-md hover:bg-[#ea580c]' : 'cursor-not-allowed bg-slate-200 text-slate-500'"
+            class="w-full rounded-xl py-4 text-lg font-bold transition-all"
+            :class="
+              selectedSeats.length > 0 && !isSeatMapLoading
+                ? 'bg-orange-500 text-white shadow-lg shadow-orange-200 hover:bg-orange-600'
+                : 'cursor-not-allowed bg-slate-200 text-slate-400'
+            "
             :disabled="selectedSeats.length === 0 || isSeatMapLoading"
             @click="completeSeatSelection"
           >
@@ -631,33 +837,32 @@ const completeSeatSelection = async () => {
         </div>
       </div>
     </div>
-    <div v-if="showExpiryWarningModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div class="w-full max-w-sm rounded bg-white p-6 text-center shadow-2xl">
+
+    <!-- ─── 만료 경고 모달 ─── -->
+    <div v-if="showExpiryWarningModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+      <div class="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl">
         <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-100">
-          <AlertCircle class="text-amber-600" :size="24" />
+          <AlertCircle class="text-amber-500" :size="24" />
         </div>
-        <h3 class="mb-2 text-lg font-bold">좌석 선택 시간이 곧 만료됩니다.</h3>
-        <p class="mb-6 text-sm text-slate-600">
-          30초 후 좌석 선택이 종료됩니다.
-          <br />
-          결제를 진행하거나 좌석을 확인해주세요.
+        <h3 class="mb-2 text-lg font-bold text-slate-800">좌석 선택 시간이 곧 만료됩니다.</h3>
+        <p class="mb-6 text-sm text-slate-500">
+          30초 후 좌석 선택이 종료됩니다.<br />결제를 진행하거나 좌석을 확인해주세요.
         </p>
-        <button class="w-full rounded bg-amber-600 py-3 font-bold text-white hover:bg-amber-700" @click="showExpiryWarningModal = false">확인</button>
+        <button class="w-full rounded-xl bg-orange-500 py-3 font-bold text-white hover:bg-orange-600" @click="showExpiryWarningModal = false">확인</button>
       </div>
     </div>
 
-    <div v-if="showConflictModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div class="w-full max-w-sm rounded bg-white p-6 text-center shadow-2xl">
-        <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100"><AlertCircle class="text-red-600" :size="24" /></div>
-        <h3 class="mb-2 text-lg font-bold">이미 선택된 좌석입니다.</h3>
-        <p class="mb-6 text-sm text-slate-600">
-          선택하신 좌석이 다른 사용자에 의해
-          <br />
-          먼저 선점되었습니다.
-          <br />
-          다른 좌석을 선택해주세요.
+    <!-- ─── 좌석 충돌 모달 ─── -->
+    <div v-if="showConflictModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+      <div class="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl">
+        <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+          <AlertCircle class="text-red-500" :size="24" />
+        </div>
+        <h3 class="mb-2 text-lg font-bold text-slate-800">이미 선택된 좌석입니다.</h3>
+        <p class="mb-6 text-sm text-slate-500">
+          선택하신 좌석이 다른 사용자에 의해<br />먼저 선점되었습니다.<br />다른 좌석을 선택해주세요.
         </p>
-        <button class="w-full rounded bg-slate-800 py-3 font-bold text-white hover:bg-black" @click="showConflictModal = false">확인</button>
+        <button class="w-full rounded-xl bg-slate-800 py-3 font-bold text-white hover:bg-black" @click="showConflictModal = false">확인</button>
       </div>
     </div>
   </div>

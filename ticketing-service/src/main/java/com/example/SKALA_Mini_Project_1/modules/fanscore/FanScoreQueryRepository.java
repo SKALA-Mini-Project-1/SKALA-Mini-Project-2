@@ -20,9 +20,9 @@ public class FanScoreQueryRepository {
     public Optional<Long> findArtistIdByBookingId(UUID bookingId) {
         String sql = """
                 SELECT c.artist_id
-                FROM bookings b
-                JOIN schedules s ON s.id = b.schedule_id
-                JOIN concerts c ON c.id = s.concert_id
+                FROM ticketing.bookings b
+                JOIN concert.schedules s ON s.id = b.schedule_id
+                JOIN concert.concerts c ON c.id = s.concert_id
                 WHERE b.id = ?
                   AND c.artist_id IS NOT NULL
                 """;
@@ -36,10 +36,10 @@ public class FanScoreQueryRepository {
                 SELECT b.user_id AS user_id,
                        c.artist_id AS artist_id,
                        COUNT(DISTINCT b.id) AS confirmed_booking_count
-                FROM bookings b
-                JOIN schedules s ON s.id = b.schedule_id
-                JOIN concerts c ON c.id = s.concert_id
-                JOIN payments p ON p.booking_id = b.id
+                FROM ticketing.bookings b
+                JOIN concert.schedules s ON s.id = b.schedule_id
+                JOIN concert.concerts c ON c.id = s.concert_id
+                JOIN payment.payments p ON p.booking_id = b.id
                 WHERE b.status = 'CONFIRMED'
                   AND p.status = 'CONFIRMED'
                   AND c.artist_id IS NOT NULL
@@ -55,7 +55,7 @@ public class FanScoreQueryRepository {
 
     public void addBookingScore(Long userId, Long artistId, int delta) {
         String sql = """
-                INSERT INTO user_artist_fan_scores (
+                INSERT INTO queue.user_artist_fan_scores (
                     user_id,
                     artist_id,
                     booking_score,
@@ -67,11 +67,11 @@ public class FanScoreQueryRepository {
                 VALUES (?, ?, GREATEST(0, ?), 0, GREATEST(0, ?), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 ON CONFLICT (user_id, artist_id)
                 DO UPDATE
-                SET booking_score = GREATEST(0, user_artist_fan_scores.booking_score + EXCLUDED.booking_score),
+                SET booking_score = GREATEST(0, queue.user_artist_fan_scores.booking_score + EXCLUDED.booking_score),
                     total_score = GREATEST(
                         0,
-                        GREATEST(0, user_artist_fan_scores.booking_score + EXCLUDED.booking_score)
-                        + user_artist_fan_scores.external_score
+                        GREATEST(0, queue.user_artist_fan_scores.booking_score + EXCLUDED.booking_score)
+                        + queue.user_artist_fan_scores.external_score
                     ),
                     updated_at = CURRENT_TIMESTAMP
                 """;

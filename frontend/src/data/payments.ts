@@ -27,6 +27,18 @@ export type PaymentSubmitResponse = {
   failUrl: string;
 };
 
+export type PaymentCancelRequest = {
+  reasonCode?: string;
+  source?: string;
+  clientRoute?: string;
+};
+
+export type PaymentCancelResponse = {
+  paymentId: string;
+  bookingId: string;
+  status: string;
+};
+
 export async function createPayment(req: PaymentCreateRequest, token: string): Promise<PaymentCreateResponse> {
   const res = await fetch(buildApiUrl("/api/payments/create"), {
     method: "POST",
@@ -60,4 +72,50 @@ export async function submitPayment(paymentId: string, token: string): Promise<P
   }
 
   return await res.json();
+}
+
+export async function cancelPayment(
+  paymentId: string,
+  token: string,
+  request: PaymentCancelRequest = {},
+  keepalive = false,
+): Promise<PaymentCancelResponse> {
+  const res = await fetch(buildApiUrl(`/api/payments/${paymentId}/cancel`), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(request),
+    keepalive
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `cancel payment failed (${res.status})`);
+  }
+
+  return await res.json();
+}
+
+export async function sendPaymentExitSignal(
+  paymentId: string,
+  token: string,
+  request: PaymentCancelRequest = {},
+  keepalive = false,
+): Promise<void> {
+  const res = await fetch(buildApiUrl(`/api/payments/${paymentId}/exit-signal`), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(request),
+    keepalive
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `payment exit signal failed (${res.status})`);
+  }
 }

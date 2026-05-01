@@ -23,8 +23,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCancelRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentExitSignalRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentGetResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentHistoryItemResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentRefundRequiredItemResponse;
@@ -97,6 +99,21 @@ public class PaymentController {
         return paymentService.submit(paymentId, userId);
     }
 
+    @PostMapping("/{paymentId}/cancel-booking")
+    @Operation(summary = "예매 취소 (확정 후)", description = "결제 확정된 예매를 취소하고 PG 환불을 처리합니다.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "예매 취소 성공"),
+            @ApiResponse(responseCode = "401", description = "인증 필요"),
+            @ApiResponse(responseCode = "403", description = "본인 결제가 아님"),
+            @ApiResponse(responseCode = "409", description = "현재 상태에서 취소 불가")
+    })
+    public ResponseEntity<PaymentConfirmResponse> cancelBooking(@PathVariable UUID paymentId) {
+        Long userId = (Long) SecurityContextHolder.getContext()
+                .getAuthentication()
+                .getPrincipal();
+        return ResponseEntity.ok(paymentService.cancelConfirmedBooking(paymentId, userId));
+    }
+
     @PostMapping("/{paymentId}/cancel")
     @Operation(summary = "사용자 결제 취소", description = "사용자가 진행 중 결제를 취소하고 관련 자원을 해제합니다.")
     @ApiResponses(value = {
@@ -106,12 +123,31 @@ public class PaymentController {
             @ApiResponse(responseCode = "409", description = "현재 상태에서 취소 불가")
     })
     public PaymentConfirmResponse cancel(
-            @PathVariable UUID paymentId
+            @PathVariable UUID paymentId,
+            @RequestBody(required = false) PaymentCancelRequest request
     ) {
         Long userId = (Long) SecurityContextHolder.getContext()
                 .getAuthentication()
                 .getPrincipal();
-        return paymentService.cancelByUser(paymentId, userId);
+        return paymentService.cancelByUser(paymentId, userId, request);
+    }
+
+    @PostMapping("/{paymentId}/exit-signal")
+    @Operation(summary = "결제 화면 이탈 감지", description = "결제 화면 이탈 신호를 기록해 운영 추적에 활용합니다.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "기록 성공"),
+            @ApiResponse(responseCode = "401", description = "인증 필요"),
+            @ApiResponse(responseCode = "403", description = "본인 결제가 아님")
+    })
+    public ResponseEntity<Void> exitSignal(
+            @PathVariable UUID paymentId,
+            @RequestBody(required = false) PaymentExitSignalRequest request
+    ) {
+        Long userId = (Long) SecurityContextHolder.getContext()
+                .getAuthentication()
+                .getPrincipal();
+        paymentService.recordExitSignal(paymentId, userId, request);
+        return ResponseEntity.ok().build();
     }
 
     @PostMapping("/confirm")

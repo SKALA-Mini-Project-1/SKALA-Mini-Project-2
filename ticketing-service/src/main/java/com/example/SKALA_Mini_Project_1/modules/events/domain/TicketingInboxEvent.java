@@ -11,7 +11,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 @Entity
-@Table(name = "ticketing_inbox_events")
+@Table(name = "ticketing_inbox_events", schema = "ticketing")
 @Getter
 @Setter
 public class TicketingInboxEvent {

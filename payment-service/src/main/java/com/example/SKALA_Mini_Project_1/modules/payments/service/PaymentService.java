@@ -7,6 +7,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -15,19 +16,18 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.factory.annotation.Value;
 
 import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.InternalBookedSeatDetailResponse;
-import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.InternalBookingFinalizationResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.InternalBookingHistoryDetailResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.InternalBookingHistoryDetailsResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.InternalBookingPaymentContextResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.InternalUserBookingIdsResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.TicketingBookingQueryClient;
-import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.TicketingFinalizationAction;
-import com.example.SKALA_Mini_Project_1.modules.payments.integration.ticketing.TicketingFinalizationClient;
 import com.example.SKALA_Mini_Project_1.modules.payments.integration.toss.TossConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.integration.toss.TossPaymentsClient;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCancelRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentConfirmResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentCreateResponse;
+import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentExitSignalRequest;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentGetResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentHistoryItemResponse;
 import com.example.SKALA_Mini_Project_1.modules.payments.controller.dto.PaymentHistorySeatResponse;
@@ -59,7 +59,6 @@ public class PaymentService {
     private final PaymentEventRepository paymentEventRepository;
     private final PaymentEventRecorder paymentEventRecorder;
     private final TicketingBookingQueryClient ticketingBookingQueryClient;
-    private final TicketingFinalizationClient ticketingFinalizationClient;
     @Value("${payment.redirect.success-url:http://localhost:5173/payments/success}")
     private String paymentSuccessRedirectUrl;
     @Value("${payment.redirect.fail-url:http://localhost:5173/payments/fail}")
@@ -85,14 +84,12 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         throw new IllegalArgumentException("userId is required");
     }
 
-    // (권장) 동시성/중복 생성 방지: booking 락 조회로 바꾸면 더 안전
     InternalBookingPaymentContextResponse bookingContext = ticketingBookingQueryClient.getPaymentContext(bookingId);
 
     if (!userId.equals(bookingContext.userId())) {
         throw new IllegalArgumentException("booking user mismatch");
     }
 
-    // ✅ booking_id UNIQUE 대응: 이미 결제가 있으면 새로 만들지 말고 그대로 반환
     return paymentRepository.findByBookingId(bookingId)
             .map(existing -> new PaymentCreateResponse(
                     existing.getId(),
@@ -114,12 +111,8 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
 
                 Payment payment = new Payment();
                 payment.setBookingId(bookingId);
-
                 payment.setAmount(amount);
-
-                // DB ck_payments_status 허용값과 반드시 일치해야 함
                 payment.setStatus(PaymentStatus.PENDING);
-
                 payment.setCreatedAt(now);
                 payment.setUpdatedAt(now);
                 payment.setExpiredAt(now.plusMinutes(createExpireMinutes));
@@ -149,7 +142,6 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
     /**
      * 결제 단건 조회
      */
-    // Get
     @Transactional(readOnly = true)
     public PaymentGetResponse getPayment(UUID paymentId, Long userId) {
         Payment p = paymentRepository.findById(paymentId)
@@ -177,12 +169,10 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
 
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
-    // 상태 전이
     String fromStatus = payment.getStatus() == null ? null : payment.getStatus().name();
     payment.changeStatus(PaymentStatus.PAYING);
     paymentEventRecorder.record(payment, "SUBMIT_PAYING", fromStatus, payment.getStatus().name(), null, payment.getPgOrderId());
 
-    // 결제 진행(PAYING) 구간은 하드 데드라인 10분 정책을 적용한다.
     OffsetDateTime hardDeadline = now.plusMinutes(payingHardDeadlineMinutes);
     payment.setExpiredAt(hardDeadline);
     payment.setHardDeadlineAt(hardDeadline);
@@ -190,13 +180,11 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
     payment.setIdempotencyKey(UUID.randomUUID().toString());
     payment.setUpdatedAt(now);
 
-    // PG 정보 세팅
     payment.setPgProvider("TOSS");
 
     String orderId = "PAY_" + payment.getId();
     payment.setPgOrderId(orderId);
 
-    // 임시 orderName 처리
     if (payment.getOrderName() == null) {
         payment.setOrderName("Ticket Payment");
     }
@@ -224,30 +212,25 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
     @Transactional
     public void handleTossSuccess(String paymentKey, String orderId, Long amount) {
 
-        // 1) 결제 조회 (비관락)
         Payment payment = paymentRepository.findByPgOrderIdForUpdate(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Payment not found: " + orderId));
 
-        // 2) 금액 위변조 방지 (Long 기준)
         if (payment.getAmount() == null || amount == null || !payment.getAmount().equals(amount)) {
             throw new IllegalStateException("Amount mismatch");
         }
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
-        // 3) 만료 여부 판단
         boolean isExpiredNow = (payment.getExpiredAt() != null && payment.getExpiredAt().isBefore(now))
                 || (payment.getHardDeadlineAt() != null && payment.getHardDeadlineAt().isBefore(now));
         boolean isExpiredStatus = payment.getStatus() == PaymentStatus.EXPIRED;
         boolean shouldMarkRefundRequired = isExpiredNow || isExpiredStatus;
 
-        // 4) Toss Confirm API 호출
         try {
             TossConfirmResponse tossResponse = tossPaymentsClient.confirm(paymentKey, orderId, amount);
             payment.setPgPaymentKey(tossResponse.getPaymentKey());
             payment.setPgStatus(tossResponse.getStatus());
         } catch (com.example.SKALA_Mini_Project_1.modules.payments.exception.TossPaymentsException e) {
-            // ✅ 실패해도 PG 정보 저장해서 추적 가능하게
             payment.setPgPaymentKey(paymentKey);
             payment.setPgStatus(e.getMessage());
             payment.setUpdatedAt(now);
@@ -258,14 +241,11 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             payment.setPgStatus("CONFIRM_EXCEPTION: " + e.getClass().getSimpleName());
             payment.setUpdatedAt(now);
             paymentRepository.save(payment);
-
             throw new IllegalStateException("Toss confirm failed");
         }
 
-        // 5) 승인 성공: pg 식별자/응답 저장
         payment.setUpdatedAt(now);
 
-        // 6) 정책 A + 상태 전이
         if (shouldMarkRefundRequired) {
             markRefundRequired(payment, now, orderId, isExpiredStatus ? "ALREADY_EXPIRED" : "EXPIRED_BEFORE_CONFIRM");
         } else {
@@ -287,8 +267,7 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
 
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
-    // 실패 정보는 최소한 로그로라도 남긴다(컬럼 없으면 pgStatus에 합쳐 저장)
-    String failInfo = "FAILED" 
+    String failInfo = "FAILED"
             + (code != null ? ("|" + code) : "")
             + (message != null ? ("|" + message) : "");
     payment.setPgStatus(failInfo);
@@ -309,9 +288,7 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         Payment payment = paymentRepository.findByPgOrderIdForUpdate(request.getOrderId())
                 .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
 
-        // 멱등 처리
         if (payment.getStatus() == PaymentStatus.CONFIRMED) {
-
             return new PaymentConfirmResponse(
                     payment.getId(),
                     payment.getBookingId(),
@@ -337,7 +314,6 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             throw new IllegalStateException("Amount mismatch");
         }
 
-        // 🔥 토스 승인 API 호출
         TossConfirmResponse tossResponse = tossPaymentsClient.confirm(
                 request.getPaymentKey(),
                 request.getOrderId(),
@@ -387,7 +363,6 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         String currentStatus = payment.getStatus() == null ? null : payment.getStatus().name();
         paymentEventRecorder.record(payment, webhookType, currentStatus, currentStatus, null, webhookEventId);
 
-        // 이미 확정된 건 무시 (멱등성)
         if (payment.getStatus() == PaymentStatus.CONFIRMED) {
             return;
         }
@@ -413,24 +388,23 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
                 || "FAILED".equalsIgnoreCase(request.getStatus())) {
             if (payment.getStatus() == PaymentStatus.PAYING
                     || payment.getStatus() == PaymentStatus.PENDING) {
-                TicketingFinalizationAction action = "CANCELED".equalsIgnoreCase(request.getStatus())
-                        ? TicketingFinalizationAction.CANCEL
-                        : TicketingFinalizationAction.FAIL;
-                finalizeTicketing(payment, action, now, request.getStatus());
                 String from = payment.getStatus().name();
                 payment.changeStatus(PaymentStatus.FAILED);
-                paymentEventRecorder.record(payment, "PAYMENT_FAILED", from, payment.getStatus().name(), null, request.getOrderId());
-            } else {
-                return;
+                paymentEventRecorder.record(payment, "PAYMENT_FAILED", from, payment.getStatus().name(), request.getStatus(), request.getOrderId());
+                // ticketing-service Kafka consumer가 비동기로 booking을 취소한다
             }
         }
     }
 
     @Transactional
-    public PaymentConfirmResponse cancelByUser(UUID paymentId, Long userId) {
+    public PaymentConfirmResponse cancelByUser(UUID paymentId, Long userId, PaymentCancelRequest request) {
         Payment payment = paymentRepository.findByIdForUpdate(paymentId)
                 .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
         ensureOwner(payment, userId);
+
+        if (payment.getStatus() == PaymentStatus.CANCELED) {
+            return new PaymentConfirmResponse(payment.getId(), payment.getBookingId(), payment.getStatus().name());
+        }
 
         if (payment.getStatus() != PaymentStatus.PENDING
                 && payment.getStatus() != PaymentStatus.PAYING) {
@@ -438,26 +412,110 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         }
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-        finalizeTicketing(payment, TicketingFinalizationAction.CANCEL, now, "USER_CANCELED");
         String from = payment.getStatus().name();
         payment.changeStatus(PaymentStatus.CANCELED);
         payment.setUpdatedAt(now);
         payment.setPgStatus("USER_CANCELED");
-        paymentEventRecorder.record(payment, "PAYMENT_CANCELED_BY_USER", from, payment.getStatus().name(), null, payment.getPgOrderId());
+        paymentEventRecorder.recordWithMetadata(
+                payment,
+                "PAYMENT_CANCELED_BY_USER",
+                from,
+                payment.getStatus().name(),
+                buildReasonMetadata(
+                        request == null ? null : request.getReasonCode(),
+                        request == null ? null : request.getSource(),
+                        request == null ? null : request.getClientRoute(),
+                        false
+                ),
+                payment.getPgOrderId()
+        );
+        // ticketing-service Kafka consumer가 비동기로 booking을 취소한다
 
         return new PaymentConfirmResponse(payment.getId(), payment.getBookingId(), payment.getStatus().name());
     }
 
+    @Transactional
+    public PaymentConfirmResponse cancelConfirmedBooking(UUID paymentId, Long userId) {
+        Payment payment = paymentRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
+        ensureOwner(payment, userId);
+
+        if (payment.getStatus() == PaymentStatus.REFUNDED) {
+            return new PaymentConfirmResponse(payment.getId(), payment.getBookingId(), payment.getStatus().name());
+        }
+
+        if (payment.getStatus() != PaymentStatus.CONFIRMED) {
+            throw new IllegalStateException("Booking cancel is only allowed in CONFIRMED status: " + payment.getStatus());
+        }
+
+        tossPaymentsClient.cancel(
+                payment.getPgPaymentKey(),
+                payment.getAmount(),
+                "사용자 예매 취소"
+        );
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+
+        Refund refund = new Refund();
+        refund.setPaymentId(paymentId);
+        refund.setStatus("COMPLETED");
+        refund.setReasonCode("USER_BOOKING_CANCEL");
+        refund.setAmount(BigDecimal.valueOf(payment.getAmount() == null ? 0L : payment.getAmount()));
+        refund.setRequestedAt(now);
+        refund.setCompletedAt(now);
+        refundRepository.save(refund);
+
+        String from = payment.getStatus().name();
+        payment.changeStatus(PaymentStatus.REFUNDED);
+        payment.setUpdatedAt(now);
+        paymentEventRecorder.recordWithMetadata(
+                payment,
+                "PAYMENT_CANCELED_BY_USER",
+                from,
+                payment.getStatus().name(),
+                buildReasonMetadata("USER_BOOKING_CANCEL", "mypage", "/mypage", false),
+                payment.getPgOrderId()
+        );
+
+        return new PaymentConfirmResponse(payment.getId(), payment.getBookingId(), payment.getStatus().name());
+    }
+
+    @Transactional
+    public void recordExitSignal(UUID paymentId, Long userId, PaymentExitSignalRequest request) {
+        Payment payment = paymentRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
+        ensureOwner(payment, userId);
+
+        if (payment.getStatus() != PaymentStatus.PENDING
+                && payment.getStatus() != PaymentStatus.PAYING) {
+            return;
+        }
+
+        paymentEventRecorder.recordWithMetadata(
+                payment,
+                "PAYMENT_EXIT_DETECTED",
+                payment.getStatus().name(),
+                payment.getStatus().name(),
+                buildReasonMetadata(
+                        request == null ? null : request.getReasonCode(),
+                        request == null ? null : request.getSource(),
+                        request == null ? null : request.getClientRoute(),
+                        true
+                ),
+                payment.getPgOrderId()
+        );
+    }
+
     private void markRefundRequired(Payment payment, OffsetDateTime now, String orderId, String reason) {
-        String reasonPayload = reason == null ? null : "{\"reason\":\"" + reason + "\"}";
+        String reasonInfo = reason == null ? null : reason;
         if (payment.getStatus() != PaymentStatus.EXPIRED) {
             String from = payment.getStatus().name();
             payment.changeStatus(PaymentStatus.EXPIRED);
-            paymentEventRecorder.record(payment, "PAYMENT_EXPIRED", from, payment.getStatus().name(), reasonPayload, orderId);
+            paymentEventRecorder.record(payment, "PAYMENT_EXPIRED", from, payment.getStatus().name(), reasonInfo, orderId);
         }
         String from = payment.getStatus().name();
         payment.changeStatus(PaymentStatus.REFUND_REQUIRED);
-        paymentEventRecorder.record(payment, "REFUND_REQUIRED_MARKED", from, payment.getStatus().name(), reasonPayload, orderId);
+        paymentEventRecorder.record(payment, "REFUND_REQUIRED_MARKED", from, payment.getStatus().name(), reasonInfo, orderId);
         payment.setUpdatedAt(now);
     }
 
@@ -469,40 +527,11 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             throw new IllegalStateException("Payment must be PAID before confirm: " + payment.getStatus());
         }
 
-        InternalBookingFinalizationResponse response =
-                finalizeTicketing(payment, TicketingFinalizationAction.CONFIRM, now, null);
-
-        if (requiresRefund(response.outcome())) {
-            markRefundRequired(payment, now, payment.getPgOrderId(), response.outcome());
-            return;
-        }
-        if (!isConfirmSuccessful(response.outcome())) {
-            throw new IllegalStateException("Unexpected ticketing confirm outcome: " + response.outcome());
-        }
-
         String from = payment.getStatus().name();
         payment.changeStatus(PaymentStatus.CONFIRMED);
         paymentEventRecorder.record(payment, "PAYMENT_CONFIRMED", from, payment.getStatus().name(), null, payment.getPgOrderId());
         payment.setUpdatedAt(now);
-    }
-
-    private InternalBookingFinalizationResponse finalizeTicketing(
-            Payment payment,
-            TicketingFinalizationAction action,
-            OffsetDateTime occurredAt,
-            String reasonCode
-    ) {
-        return ticketingFinalizationClient.finalizeBooking(payment, action, occurredAt, reasonCode);
-    }
-
-    private boolean isConfirmSuccessful(String outcome) {
-        return "CONFIRMED".equalsIgnoreCase(outcome)
-                || "ALREADY_CONFIRMED".equalsIgnoreCase(outcome);
-    }
-
-    private boolean requiresRefund(String outcome) {
-        return "INVALID_HOLD".equalsIgnoreCase(outcome)
-                || "BOOKING_ALREADY_CANCELED".equalsIgnoreCase(outcome);
+        // ticketing-service Kafka consumer가 PAYMENT_CONFIRMED 이벤트를 소비해 booking finalization을 수행한다
     }
 
     @Transactional(readOnly = true)
@@ -770,6 +799,21 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             return List.of();
         }
         return response.bookingIds();
+    }
+
+    private Map<String, Object> buildReasonMetadata(String reasonCode, String source, String clientRoute, boolean bestEffort) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (reasonCode != null && !reasonCode.isBlank()) {
+            metadata.put("reason", reasonCode);
+        }
+        if (source != null && !source.isBlank()) {
+            metadata.put("source", source);
+        }
+        if (clientRoute != null && !clientRoute.isBlank()) {
+            metadata.put("clientRoute", clientRoute);
+        }
+        metadata.put("bestEffort", bestEffort);
+        return metadata;
     }
 
 }

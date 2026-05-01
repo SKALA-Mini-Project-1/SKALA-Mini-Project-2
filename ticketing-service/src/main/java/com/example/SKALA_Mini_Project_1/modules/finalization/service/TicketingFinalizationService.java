@@ -5,6 +5,7 @@ import com.example.SKALA_Mini_Project_1.global.redis.RedisLockRepository;
 import com.example.SKALA_Mini_Project_1.modules.bookings.domain.Booking;
 import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingItemRepository;
 import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository;
+import com.example.SKALA_Mini_Project_1.modules.events.service.TicketingOutboxRecorder;
 import com.example.SKALA_Mini_Project_1.modules.fanscore.FanScoreService;
 import com.example.SKALA_Mini_Project_1.modules.finalization.dto.InternalBookingCancelRequest;
 import com.example.SKALA_Mini_Project_1.modules.finalization.dto.InternalBookingConfirmRequest;
@@ -43,6 +44,7 @@ public class TicketingFinalizationService {
     private final RedisTemplate<String, String> redisTemplate;
     private final FanScoreService fanScoreService;
     private final ReconciliationTaskService reconciliationTaskService;
+    private final TicketingOutboxRecorder ticketingOutboxRecorder;
 
     @Transactional
     public InternalBookingFinalizationResponse confirmBooking(InternalBookingConfirmRequest request) {
@@ -82,19 +84,17 @@ public class TicketingFinalizationService {
             );
         }
 
-        boolean holdValid = isHoldValid(context);
-        if (!holdValid) {
-            return response(
-                    "INVALID_HOLD",
-                    booking,
-                    context,
-                    false,
-                    null,
+        HoldValidationResult holdValidation = validateHold(context);
+        if (!holdValidation.valid()) {
+            log.warn(
+                    "Proceeding booking confirmation with expired or missing Redis hold. bookingId={}, paymentId={}, userId={}, concertId={}, scheduleId={}, seatIds={}, details={}",
+                    booking.getId(),
                     request.paymentId(),
-                    request.pgOrderId(),
-                    request.pgPaymentKey(),
-                    request.amount(),
-                    processedAt
+                    booking.getUserId(),
+                    context.concertId(),
+                    context.scheduleId(),
+                    context.seatIds(),
+                    holdValidation.details()
             );
         }
 
@@ -103,13 +103,14 @@ public class TicketingFinalizationService {
         booking.setConfirmedAt(processedAt);
 
         fanScoreService.applyConfirmedBookingScore(booking.getId(), booking.getUserId());
+        ticketingOutboxRecorder.record("booking.confirmed", booking.getId(), request.paymentId(), null, processedAt);
         scheduleSeatCleanupAfterCommit(context.concertId(), booking.getScheduleId(), booking.getUserId());
 
         return response(
                 "CONFIRMED",
                 booking,
                 context,
-                true,
+                holdValidation.valid(),
                 null,
                 request.paymentId(),
                 request.pgOrderId(),
@@ -121,28 +122,38 @@ public class TicketingFinalizationService {
 
     @Transactional
     public InternalBookingFinalizationResponse cancelBooking(InternalBookingCancelRequest request) {
-        return closeBooking(
+        OffsetDateTime canceledAt = resolveTime(request.canceledAt());
+        InternalBookingFinalizationResponse result = closeBooking(
                 request.bookingId(),
                 request.paymentId(),
                 request.pgOrderId(),
                 request.reasonCode(),
-                resolveTime(request.canceledAt()),
+                canceledAt,
                 "CANCELED_BY_PAYMENT",
                 "ALREADY_CANCELED"
         );
+        if ("CANCELED_BY_PAYMENT".equals(result.outcome())) {
+            ticketingOutboxRecorder.record("booking.canceled", request.bookingId(), request.paymentId(), null, canceledAt);
+        }
+        return result;
     }
 
     @Transactional
     public InternalBookingFinalizationResponse expireBooking(InternalBookingExpireRequest request) {
-        return closeBooking(
+        OffsetDateTime expiredAt = resolveTime(request.expiredAt());
+        InternalBookingFinalizationResponse result = closeBooking(
                 request.bookingId(),
                 request.paymentId(),
                 request.pgOrderId(),
                 request.reasonCode(),
-                resolveTime(request.expiredAt()),
+                expiredAt,
                 "EXPIRED_BY_PAYMENT",
                 "ALREADY_EXPIRED_OR_CANCELED"
         );
+        if ("EXPIRED_BY_PAYMENT".equals(result.outcome())) {
+            ticketingOutboxRecorder.record("booking.expired", request.bookingId(), request.paymentId(), null, expiredAt);
+        }
+        return result;
     }
 
     private InternalBookingFinalizationResponse closeBooking(
@@ -225,20 +236,21 @@ public class TicketingFinalizationService {
         );
     }
 
-    private boolean isHoldValid(BookingContext context) {
+    private HoldValidationResult validateHold(BookingContext context) {
         if (context.scheduleId() == null || context.userId() == null) {
-            return false;
+            return new HoldValidationResult(false, List.of("scheduleId or userId is null"));
         }
 
         String expectedOwner = String.valueOf(context.userId());
+        List<String> invalidSeats = new java.util.ArrayList<>();
         for (Long seatId : context.seatIds()) {
             String owner = redisLockRepository.getSeatOwner(context.concertId(), context.scheduleId(), seatId);
             Long ttl = redisLockRepository.getSeatLockTtlSeconds(context.concertId(), context.scheduleId(), seatId);
             if (!expectedOwner.equals(owner) || ttl == null || ttl <= 0) {
-                return false;
+                invalidSeats.add("seatId=" + seatId + ",owner=" + owner + ",ttl=" + ttl);
             }
         }
-        return true;
+        return new HoldValidationResult(invalidSeats.isEmpty(), invalidSeats);
     }
 
     private OffsetDateTime resolveTime(OffsetDateTime requestedAt) {
@@ -329,6 +341,12 @@ public class TicketingFinalizationService {
             Long scheduleId,
             Long userId,
             List<Long> seatIds
+    ) {
+    }
+
+    private record HoldValidationResult(
+            boolean valid,
+            List<String> details
     ) {
     }
 }

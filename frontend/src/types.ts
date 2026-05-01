@@ -128,6 +128,7 @@ export interface BookingData {
 }
 
 export interface BookingHistoryRecord {
+  paymentId: string
   bookingNumber: string
   userId: number
   concertTitle: string
