@@ -3,6 +3,7 @@ package com.example.SKALA_Mini_Project_1.modules.waiting.service;
 import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
 import com.example.SKALA_Mini_Project_1.integration.concert.ConcertServiceClient;
 import com.example.SKALA_Mini_Project_1.integration.userauth.UserAuthClient;
+import com.example.SKALA_Mini_Project_1.modules.waiting.config.QueueRuntimeProperties;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.QueueStatusResponse;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.TicketingStartResponse;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +23,6 @@ import java.util.function.Supplier;
 @RequiredArgsConstructor
 public class QueueService {
 
-    private static final long MAX_SEAT_CAPACITY = 500;
     private static final Duration QUEUE_HEARTBEAT_TTL = Duration.ofMinutes(10);
     private static final Duration ENTRY_TOKEN_TTL = Duration.ofSeconds(180);
     private static final Duration SCHEDULE_VALIDATE_CACHE_TTL = Duration.ofMinutes(10);
@@ -69,6 +69,7 @@ public class QueueService {
     private final ConcertServiceClient concertServiceClient;
     private final QueuePriorityService queuePriorityService;
     private final QueueRedisRetryPolicy queueRedisRetryPolicy;
+    private final QueueRuntimeProperties queueRuntimeProperties;
 
     public TicketingStartResponse startTicketing(Long concertId, Long scheduleId, Long userId) {
         userAuthClient.ensureUserExists(userId);
@@ -192,7 +193,7 @@ public class QueueService {
                 script,
                 List.of(queueKey, activeKey, entryTokenKey),
                 userKey,
-                String.valueOf(MAX_SEAT_CAPACITY),
+                String.valueOf(queueRuntimeProperties.getMaxSeatCapacity()),
                 payload,
                 String.valueOf(ENTRY_TOKEN_TTL.toMillis()),
                 entryToken
