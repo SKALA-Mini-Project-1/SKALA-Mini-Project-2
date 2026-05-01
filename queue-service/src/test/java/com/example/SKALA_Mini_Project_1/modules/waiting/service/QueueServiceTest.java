@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -15,6 +16,8 @@ import com.example.SKALA_Mini_Project_1.integration.concert.ConcertServiceClient
 import com.example.SKALA_Mini_Project_1.integration.userauth.UserAuthClient;
 import com.example.SKALA_Mini_Project_1.modules.waiting.config.QueueRuntimeProperties;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.QueueStatusResponse;
+import com.example.SKALA_Mini_Project_1.modules.waiting.dto.TicketingStartResponse;
+import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -127,6 +130,103 @@ class QueueServiceTest {
                 eq("180000"),
                 anyString()
         );
+    }
+
+    @Test
+    void startTicketingAddsUserToQueueAndReturnsWaitingRank() {
+        Long concertId = 1L;
+        Long scheduleId = 2L;
+        Long userId = 3L;
+        String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
+        String queueKey = RedisKeyGenerator.queueKey(concertId, scheduleId);
+        String heartbeatKey = RedisKeyGenerator.queueHeartbeatKey(concertId, scheduleId, String.valueOf(userId));
+
+        when(redisTemplate.hasKey("queue:schedule:concert:1:schedule:2")).thenReturn(true);
+        when(queuePriorityService.getQueuePriorityBoostMillis(userId, concertId)).thenReturn(250);
+        when(valueOperations.setIfAbsent(activeKey, "0")).thenReturn(true);
+        when(zSetOperations.add(eq(queueKey), eq("3"), any(Double.class))).thenReturn(true);
+        when(zSetOperations.rank(queueKey, "3")).thenReturn(4L);
+
+        TicketingStartResponse response = queueService.startTicketing(concertId, scheduleId, userId);
+
+        assertThat(response.isEnter()).isFalse();
+        assertThat(response.getRank()).isEqualTo(5L);
+        verify(userAuthClient).ensureUserExists(userId);
+        verify(valueOperations).set(eq(heartbeatKey), eq("1"), eq(Duration.ofMinutes(10)));
+    }
+
+    @Test
+    void getStatusReturnsEntryTokenAndCleansUpQueueStateWhenAdmissionSucceeds() {
+        Long concertId = 1L;
+        Long scheduleId = 2L;
+        Long userId = 3L;
+        String queueKey = RedisKeyGenerator.queueKey(concertId, scheduleId);
+        String heartbeatKey = RedisKeyGenerator.queueHeartbeatKey(concertId, scheduleId, String.valueOf(userId));
+
+        when(redisTemplate.hasKey("queue:schedule:concert:1:schedule:2")).thenReturn(true);
+        when(zSetOperations.rank(queueKey, "3")).thenReturn(0L);
+        when(redisTemplate.execute(
+                anyScript(),
+                anyKeyList(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any()
+        )).thenReturn("issued-token");
+        when(zSetOperations.zCard(queueKey)).thenReturn(0L);
+
+        QueueStatusResponse response = queueService.getStatus(concertId, scheduleId, userId);
+
+        assertThat(response.isEnter()).isTrue();
+        assertThat(response.getEntryToken()).isEqualTo("issued-token");
+        assertThat(response.getRank()).isNull();
+        verify(setOperations).remove(RedisKeyGenerator.queueIndexKey(), queueKey);
+        verify(redisTemplate).delete(heartbeatKey);
+    }
+
+    @Test
+    void leaveQueueRemovesUserAndClearsHeartbeat() {
+        Long concertId = 1L;
+        Long scheduleId = 2L;
+        Long userId = 3L;
+        String queueKey = RedisKeyGenerator.queueKey(concertId, scheduleId);
+        String heartbeatKey = RedisKeyGenerator.queueHeartbeatKey(concertId, scheduleId, String.valueOf(userId));
+
+        when(redisTemplate.hasKey("queue:schedule:concert:1:schedule:2")).thenReturn(true);
+        when(zSetOperations.remove(queueKey, "3")).thenReturn(1L);
+        when(zSetOperations.zCard(queueKey)).thenReturn(0L);
+
+        boolean removed = queueService.leaveQueue(concertId, scheduleId, userId);
+
+        assertThat(removed).isTrue();
+        verify(setOperations).remove(RedisKeyGenerator.queueIndexKey(), queueKey);
+        verify(redisTemplate).delete(heartbeatKey);
+    }
+
+    @Test
+    void fallsBackToDownstreamValidationWhenScheduleCacheReadWriteFails() {
+        Long concertId = 1L;
+        Long scheduleId = 2L;
+        Long userId = 3L;
+        String activeKey = RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
+        String queueKey = RedisKeyGenerator.queueKey(concertId, scheduleId);
+
+        when(redisTemplate.hasKey("queue:schedule:concert:1:schedule:2"))
+                .thenThrow(new RedisConnectionFailureException("redis down"));
+        doThrow(new RedisConnectionFailureException("redis down"))
+                .when(valueOperations)
+                .set(eq("queue:schedule:concert:1:schedule:2"), eq("1"), eq(Duration.ofMinutes(10)));
+        when(queuePriorityService.getQueuePriorityBoostMillis(userId, concertId)).thenReturn(0);
+        when(valueOperations.setIfAbsent(activeKey, "0")).thenReturn(true);
+        when(zSetOperations.add(eq(queueKey), eq("3"), any(Double.class))).thenReturn(true);
+        when(zSetOperations.rank(queueKey, "3")).thenReturn(0L);
+
+        TicketingStartResponse response = queueService.startTicketing(concertId, scheduleId, userId);
+
+        assertThat(response.isEnter()).isFalse();
+        assertThat(response.getRank()).isEqualTo(1L);
+        verify(concertServiceClient).ensureScheduleBelongsToConcert(concertId, scheduleId);
     }
 
     @SuppressWarnings("unchecked")

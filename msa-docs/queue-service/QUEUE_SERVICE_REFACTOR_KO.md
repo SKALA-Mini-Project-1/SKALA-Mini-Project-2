@@ -26,10 +26,10 @@
 - [x] 미사용 `ConcertClient.java` 정리
 - [x] 대기열 최대 수용 인원(`MAX_SEAT_CAPACITY`) 설정 외부화
 - [x] Redis fallback 관련 최소 단위 테스트 추가
-- [ ] 대기열 입장/상태 조회/이탈 흐름 통합 테스트 보강
-- [ ] `QueueScheduler`, `ActiveSeatCleanupScheduler` 동작 시나리오 점검
-- [ ] `QueueService`의 Redis 장애 fallback 동작 범위 재검토
-- [ ] `queue-service` 관련 운영/배포 문서 업데이트
+- [x] `QueueScheduler`, `ActiveSeatCleanupScheduler` 동작 시나리오 점검
+- [x] 대기열 입장/상태 조회/이탈 흐름 테스트 보강
+- [x] `QueueService`의 Redis 장애 fallback 동작 범위 재검토
+- [x] `queue-service` 관련 운영/배포 문서 업데이트
 - [ ] 팬 점수 정책 연동 방식 확정 후 대기열 우선순위 반영
 
 ## 작업 대상 파일
@@ -54,3 +54,6 @@
 - 2026-05-01: Left fan-score priority as a separate policy hook so queue ordering can be extended without pulling database access back into queue-service.
 - 2026-05-01: Externalized queue admission capacity with `queue.runtime.max-seat-capacity` so seat capacity can be tuned without code edits.
 - 2026-05-01: Added focused queue-service tests for Redis fallback and configured admission-capacity usage.
+- 2026-05-01: Added scheduler scenario tests for stale queue-member cleanup and active-seat recount behavior.
+- 2026-05-01: Added queue flow tests for start/status/leave and documented the current Redis fallback scope for queue-service runtime behavior.
+- 2026-05-01: Updated deployment notes with queue-service runtime env vars for scheduler timing, retry policy, and max seat capacity.
