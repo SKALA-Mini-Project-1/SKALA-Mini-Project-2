@@ -18,8 +18,8 @@ public class FanScoreSyncInitializer implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         try {
-            fanScoreService.syncArtistFanScoresFromConfirmedBookings();
-            log.info("Fan score startup sync finished");
+            int appliedCount = fanScoreService.syncArtistFanScoresFromConfirmedBookings();
+            log.info("Fan score startup sync finished: {} booking targets applied", appliedCount);
         } catch (DataAccessException e) {
             log.warn("Fan score startup sync skipped because required tables are not ready yet: {}", e.getMessage());
         }

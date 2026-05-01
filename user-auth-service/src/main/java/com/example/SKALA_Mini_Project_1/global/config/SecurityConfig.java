@@ -54,7 +54,8 @@ public class SecurityConfig {
                                 "/api/users/login",
                                 "/api/users/logout",
                                 "/api/users/email/**",
-                                "/internal/users/**"
+                                "/internal/users/**",
+                                "/internal/fan-scores/**"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )

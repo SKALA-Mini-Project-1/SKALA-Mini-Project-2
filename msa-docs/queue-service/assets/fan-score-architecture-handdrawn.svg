@@ -1,0 +1,73 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="shadow" x="0" y="0" width="1280" height="720" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#d0d7de" flood-opacity="0.45"/>
+    </filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2f5aa8"/>
+    </marker>
+    <style>
+      .title { font: 700 34px 'Arial', sans-serif; fill: #1f2a37; }
+      .label { font: 700 24px 'Arial', sans-serif; fill: #1f2a37; }
+      .text { font: 500 20px 'Arial', sans-serif; fill: #334155; }
+      .note { font: 500 18px 'Arial', sans-serif; fill: #475569; }
+      .box { fill: #fffdf8; stroke: #243b53; stroke-width: 4; rx: 22; ry: 22; }
+      .db { fill: #f8fbff; stroke: #243b53; stroke-width: 4; }
+      .group { fill: #eef6ff; stroke: #7aa2d6; stroke-width: 3; stroke-dasharray: 10 10; rx: 28; ry: 28; }
+      .line { stroke: #2f5aa8; stroke-width: 5; stroke-linecap: round; fill: none; marker-end: url(#arrow); }
+      .hint { fill: #fff7e8; stroke: #e0a243; stroke-width: 3; rx: 18; ry: 18; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="720" fill="#f5f7fb"/>
+  <text x="70" y="72" class="title">Fan Score Architecture - Hand-drawn Overview</text>
+
+  <rect x="56" y="112" width="1168" height="548" class="group"/>
+
+  <rect x="90" y="238" width="210" height="110" class="box" filter="url(#shadow)"/>
+  <text x="155" y="286" class="label">Frontend</text>
+  <text x="130" y="320" class="text">ticketing start</text>
+
+  <rect x="378" y="184" width="270" height="214" class="box" filter="url(#shadow)"/>
+  <text x="438" y="228" class="label">queue-service</text>
+  <text x="430" y="272" class="text">Queue API</text>
+  <text x="430" y="308" class="text">QueuePriorityPolicy</text>
+  <text x="430" y="344" class="text">rank / boostMillis</text>
+
+  <rect x="736" y="138" width="220" height="118" class="box" filter="url(#shadow)"/>
+  <text x="766" y="186" class="label">concert-service</text>
+  <text x="784" y="220" class="text">artistId lookup</text>
+
+  <rect x="736" y="310" width="240" height="132" class="box" filter="url(#shadow)"/>
+  <text x="757" y="358" class="label">user-auth-service</text>
+  <text x="766" y="392" class="text">Fan Score read / write</text>
+
+  <path d="M1022 350 C1062 350 1092 372 1092 405 C1092 438 1062 460 1022 460 L912 460 C872 460 842 438 842 405 C842 372 872 350 912 350 Z" class="db" filter="url(#shadow)"/>
+  <ellipse cx="967" cy="350" rx="125" ry="26" class="db"/>
+  <ellipse cx="967" cy="460" rx="125" ry="26" class="db"/>
+  <text x="885" y="412" class="label">user_artist_fan_scores</text>
+
+  <rect x="378" y="478" width="300" height="126" class="box" filter="url(#shadow)"/>
+  <text x="418" y="526" class="label">ticketing-service</text>
+  <text x="430" y="560" class="text">ended concert scan</text>
+  <text x="430" y="594" class="text">Fan Score update trigger</text>
+
+  <rect x="874" y="515" width="278" height="88" class="hint" filter="url(#shadow)"/>
+  <text x="898" y="552" class="label">Key rule</text>
+  <text x="898" y="584" class="note">CONFIRMED booking + concert ended</text>
+
+  <path d="M300 292 L378 292" class="line"/>
+  <path d="M648 250 L736 206" class="line"/>
+  <path d="M648 326 L736 376" class="line"/>
+  <path d="M976 376 L976 364" class="line"/>
+  <path d="M678 540 L796 540 C840 540 864 500 864 450" class="line"/>
+  <path d="M858 310 C858 280 842 246 812 240" class="line"/>
+
+  <text x="320" y="276" class="note">HTTP</text>
+  <text x="656" y="216" class="note">artistId</text>
+  <text x="660" y="360" class="note">Fan Score query</text>
+  <text x="1000" y="380" class="note">upsert</text>
+  <text x="694" y="524" class="note">attendance-confirmed</text>
+  <text x="790" y="278" class="note">/internal/concerts/.../artist-id</text>
+  <text x="694" y="446" class="note">/internal/fan-scores/users/{userId}/artists/{artistId}</text>
+</svg>
