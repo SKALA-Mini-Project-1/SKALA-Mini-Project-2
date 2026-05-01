@@ -119,13 +119,20 @@ services:
       REDIS_PORT: 6379
       JWT_SECRET: your-secret-key-min-32-characters-long-for-hs256-algorithm-security
       USER_AUTH_SERVICE_BASE_URL: http://user-auth-service:8080
+      CONCERT_SERVICE_BASE_URL: http://concert-service:8080
       USER_AUTH_INTERNAL_API_TOKEN: dev-user-auth-internal-token
+      CONCERT_INTERNAL_API_TOKEN: dev-concert-internal-token
       TICKETING_INTERNAL_API_TOKEN: dev-ticketing-internal-token
+      TICKETING_FAN_SCORE_SYNC_FIXED_DELAY_MS: 60000
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      user-auth-service:
+        condition: service_started
+      concert-service:
+        condition: service_started
     ports:
       - "18084:8080"
 
