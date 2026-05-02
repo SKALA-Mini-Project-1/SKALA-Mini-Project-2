@@ -1,0 +1,31 @@
+{
+  "name": "ticketing-outbox-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "skala",
+    "database.password": "skala1229",
+    "database.dbname": "concert",
+    "topic.prefix": "fairline",
+    "schema.include.list": "ticketing",
+    "table.include.list": "ticketing.ticketing_outbox",
+    "plugin.name": "pgoutput",
+    "publication.name": "debezium_ticketing_pub",
+    "publication.autocreate.mode": "disabled",
+    "slot.name": "debezium_ticketing_slot",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    "transforms": "outbox",
+    "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
+    "transforms.outbox.table.field.event.id": "event_id",
+    "transforms.outbox.table.field.event.type": "event_type",
+    "transforms.outbox.table.field.event.payload": "payload_json",
+    "transforms.outbox.table.field.event.key": "aggregate_id",
+    "transforms.outbox.route.by.field": "aggregate_type",
+    "transforms.outbox.route.topic.replacement": "ticketing.events.v1",
+    "transforms.outbox.table.expand.json.payload": "true"
+  }
+}
