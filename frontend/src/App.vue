@@ -328,21 +328,36 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <!-- 운영자 대시보드: 별도 다크 레이아웃 -->
-  <div v-if="normalizedPath === '/ops'" class="min-h-screen" style="background:#081326; color:#e2eaf4;">
-    <header class="sticky top-0 z-50 border-b" style="border-color:#1e3553; background:#081326;">
-      <div class="mx-auto max-w-[1440px] flex items-center justify-between px-6 py-3">
+  <!-- 운영자 대시보드: 라이트 레이아웃 -->
+  <div v-if="normalizedPath === '/ops'" class="min-h-screen" style="background:radial-gradient(circle at 8% 0%, #f7fbff 0%, #edf4fc 35%, #f3f7fc 100%); color:#173451;">
+    <!-- utility bar -->
+    <div style="background:#f7fafd; border-bottom:1px solid #dfe7f0;">
+      <div class="mx-auto max-w-[1280px] flex justify-end gap-4 px-6 py-2 text-xs" style="color:#4f6480;">
+        <button class="hover:underline bg-transparent border-none cursor-pointer font-[inherit] text-xs" style="color:#4f6480;" @click="navigate('/main')">← 서비스로</button>
+        <span style="color:#c8d5e2;">|</span>
+        <span style="color:#ff7a00; font-weight:700;">운영 대시보드</span>
+      </div>
+    </div>
+    <!-- logo row -->
+    <header class="sticky top-0 z-50 border-b" style="border-color:#d8e2ef; background:rgba(255,255,255,.95); backdrop-filter:blur(6px);">
+      <div class="mx-auto max-w-[1280px] flex items-center justify-between px-6 py-3">
         <div class="flex items-center gap-3">
-          <span class="text-base font-extrabold tracking-tight" style="color:#ff7a00;">🎫 FairlineTicket</span>
-          <span style="color:#1e3553;">/</span>
-          <span class="text-sm font-semibold" style="color:#7a9ab8;">결제 운영 대시보드</span>
+          <img src="/fairline_ticket_favicon.jpg" alt="FairlineTicket" class="h-10 w-auto object-contain rounded-lg" />
+          <span class="text-lg font-extrabold tracking-tight" style="color:#ff7a00;">FairlineTicket</span>
+          <span style="color:#d8e2ef;">/</span>
+          <span class="text-sm font-semibold" style="color:#4f6480;">결제 운영 대시보드</span>
         </div>
-        <button class="text-sm px-3 py-1 rounded-lg" style="border:1px solid #1e3553; color:#e2eaf4;" @click="navigate('/main')">
-          ← 서비스로
-        </button>
+      </div>
+      <!-- nav -->
+      <div style="border-top:1px solid #e0e7f0;">
+        <div class="mx-auto max-w-[1280px] px-6 flex gap-1">
+          <button class="border-b-2 px-5 py-3 text-sm font-bold" style="border-color:transparent; color:#2c4764; background:none; cursor:pointer; font-family:inherit;" @click="navigate('/main')">메인</button>
+          <button class="border-b-2 px-5 py-3 text-sm font-bold" style="border-color:transparent; color:#2c4764; background:none; cursor:pointer; font-family:inherit;" @click="navigate('/concerts')">콘서트</button>
+          <button class="border-b-2 px-5 py-3 text-sm font-bold" style="border-color:#ff7a00; color:#ff7a00; background:none; cursor:pointer; font-family:inherit;">운영 대시보드</button>
+        </div>
       </div>
     </header>
-    <main class="mx-auto max-w-[1440px] px-6 py-8">
+    <main class="mx-auto max-w-[1280px] px-6 py-8">
       <OpsIncidentDetailPage
         v-if="opsIncidentId"
         :incident-id="opsIncidentId"

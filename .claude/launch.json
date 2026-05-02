@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ops-dashboard-mockup",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-p", "5500", "yewon"],
+      "port": 5500
+    },
+    {
+      "name": "frontend-dev",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /Users/yangyewon/workspace/SKALA-Mini-Project-2/frontend && npx vite"],
+      "port": 5173,
+      "autoPort": true
+    }
+  ]
+}
