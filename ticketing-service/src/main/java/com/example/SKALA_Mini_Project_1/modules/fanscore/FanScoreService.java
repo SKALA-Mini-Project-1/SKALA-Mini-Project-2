@@ -25,33 +25,63 @@ public class FanScoreService {
     private final FanScoreQueryRepository fanScoreQueryRepository;
     private final ConcertServiceClient concertServiceClient;
     private final UserAuthClient userAuthClient;
+    private final FanScoreMetrics fanScoreMetrics;
 
     @Transactional
     public void applyConfirmedBookingScore(UUID bookingId, Long userId) {
-        if (bookingId == null || userId == null) {
-            return;
-        }
+        fanScoreMetrics.observe(
+                "fairline.fan_score.sync.single",
+                "fanScoreService#applyConfirmedBookingScore",
+                "apply_confirmed_booking",
+                () -> {
+                    if (bookingId == null || userId == null) {
+                        fanScoreMetrics.incrementSyncRequest("apply_confirmed_booking", "invalid_input");
+                        return null;
+                    }
 
-        OffsetDateTime referenceTime = nowUtc();
-        fanScoreQueryRepository.findEligibleConfirmedBookingTarget(bookingId, referenceTime)
-                .ifPresent(target -> applyTarget(target, referenceTime));
+                    OffsetDateTime referenceTime = nowUtc();
+                    var maybeTarget = fanScoreQueryRepository.findEligibleConfirmedBookingTarget(bookingId, referenceTime);
+                    if (maybeTarget.isEmpty()) {
+                        fanScoreMetrics.incrementSyncRequest("apply_confirmed_booking", "not_eligible");
+                        return null;
+                    }
+
+                    boolean applied = applyTarget(maybeTarget.get(), referenceTime);
+                    fanScoreMetrics.incrementSyncRequest(
+                            "apply_confirmed_booking",
+                            applied ? "applied" : "skipped"
+                    );
+                    return null;
+                }
+        );
     }
 
     @Transactional
     public int syncArtistFanScoresFromConfirmedBookings() {
-        OffsetDateTime referenceTime = nowUtc();
-        List<FanScoreQueryRepository.ConfirmedBookingFanScoreTargetRow> targets =
-                fanScoreQueryRepository.findEligibleConfirmedBookingTargets(referenceTime);
+        return fanScoreMetrics.observe(
+                "fairline.fan_score.sync.batch",
+                "fanScoreService#syncArtistFanScoresFromConfirmedBookings",
+                "sync_batch",
+                () -> {
+                    OffsetDateTime referenceTime = nowUtc();
+                    List<FanScoreQueryRepository.ConfirmedBookingFanScoreTargetRow> targets =
+                            fanScoreQueryRepository.findEligibleConfirmedBookingTargets(referenceTime);
 
-        int appliedCount = 0;
-        for (FanScoreQueryRepository.ConfirmedBookingFanScoreTargetRow target : targets) {
-            if (applyTarget(target, referenceTime)) {
-                appliedCount++;
-            }
-        }
+                    fanScoreMetrics.recordBatchTargetCount(targets.size());
 
-        log.info("Fan score sync complete: {} booking targets applied", appliedCount);
-        return appliedCount;
+                    int appliedCount = 0;
+                    for (FanScoreQueryRepository.ConfirmedBookingFanScoreTargetRow target : targets) {
+                        if (applyTarget(target, referenceTime)) {
+                            appliedCount++;
+                        }
+                    }
+
+                    fanScoreMetrics.recordAppliedCount(appliedCount);
+                    fanScoreMetrics.incrementSyncRequest("sync_batch", "completed");
+                    log.info("Fan score sync complete: {} booking targets applied", appliedCount);
+                    return appliedCount;
+                }
+        );
     }
 
     private boolean applyTarget(
@@ -61,6 +91,7 @@ public class FanScoreService {
         try {
             Long artistId = concertServiceClient.getArtistIdForConcert(target.concertId());
             if (artistId == null) {
+                fanScoreMetrics.incrementTarget("skipped_missing_artist");
                 return false;
             }
 
@@ -72,8 +103,10 @@ public class FanScoreService {
                     appliedAt
             );
             bookingRepository.markFanScoreApplied(target.bookingId(), appliedAt);
+            fanScoreMetrics.incrementTarget("applied");
             return true;
         } catch (IllegalArgumentException | FanScoreSyncException e) {
+            fanScoreMetrics.incrementTarget("skipped_downstream");
             log.warn(
                     "Fan score sync skipped for bookingId={} userId={} concertId={}: {}",
                     target.bookingId(),
