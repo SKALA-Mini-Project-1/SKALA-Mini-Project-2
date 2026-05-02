@@ -91,6 +91,9 @@ services:
       context: .
       dockerfile: queue-service/Dockerfile
     environment:
+      DB_URL: jdbc:postgresql://postgres:5432/concert?currentSchema=queue,concert,ticketing,payment,auth,public
+      DB_USER: skala
+      DB_PASSWORD: skala1229
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_SECRET: your-secret-key-min-32-characters-long-for-hs256-algorithm-security
@@ -119,14 +122,21 @@ services:
       REDIS_PORT: 6379
       JWT_SECRET: your-secret-key-min-32-characters-long-for-hs256-algorithm-security
       USER_AUTH_SERVICE_BASE_URL: http://user-auth-service:8080
+      CONCERT_SERVICE_BASE_URL: http://concert-service:8080
       USER_AUTH_INTERNAL_API_TOKEN: dev-user-auth-internal-token
+      CONCERT_INTERNAL_API_TOKEN: dev-concert-internal-token
       TICKETING_INTERNAL_API_TOKEN: dev-ticketing-internal-token
+      TICKETING_FAN_SCORE_SYNC_FIXED_DELAY_MS: 60000
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      user-auth-service:
+        condition: service_started
+      concert-service:
+        condition: service_started
     ports:
       - "18084:8080"
 
@@ -202,6 +212,57 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     ports:
       - "9092:9092"
+
+  incident-detector:
+    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
+    image: team4-incident-detector
+    build:
+      context: .
+      dockerfile: incident-detector/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/concert?currentSchema=incident,public
+      DB_USER: skala
+      DB_PASSWORD: skala1229
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+    ports:
+      - "18086:8080"
+
+  incident-agent:
+    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
+    image: team4-incident-agent
+    build:
+      context: .
+      dockerfile: incident-agent/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/concert?currentSchema=incident,public
+      DB_USER: skala
+      DB_PASSWORD: skala1229
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    depends_on:
+      - postgres
+    ports:
+      - "18087:8080"
+
+  incident-api:
+    platform: ${DOCKER_DEFAULT_PLATFORM:-linux/amd64}
+    image: team4-incident-api
+    build:
+      context: .
+      dockerfile: incident-api/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/concert?currentSchema=incident,public
+      DB_USER: skala
+      DB_PASSWORD: skala1229
+    depends_on:
+      - postgres
+    ports:
+      - "18088:8080"
 
 volumes:
   postgres-data:
