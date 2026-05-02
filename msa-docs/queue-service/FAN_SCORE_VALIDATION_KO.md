@@ -123,11 +123,14 @@
 - [x] `user-auth-service` 단위 테스트 통과
 - [x] `ticketing-service` 단위 테스트 통과
 - [x] `queue-service` 단위 테스트 통과
-- [ ] 로컬 다중 서비스 시나리오 검증 완료
-- [ ] `docker-compose` 기준 검증 완료
-- [ ] Kubernetes 환경 변수 반영 확인
+- [x] 로컬 다중 서비스 시나리오 검증 완료
+- [x] `docker-compose` 기준 검증 완료
+- [x] Kubernetes 환경 변수 반영 확인
+- [ ] Kubernetes RDS 기준 `ticketing-service` fan score scheduler 재검증
 
 ## 작업 로그
 
 - 2026-05-02: Added a validation guide for `Fan Score` automatic update and queue priority integration.
 - 2026-05-02: Included both happy-path verification and downstream fallback verification steps.
+- 2026-05-02: Verified the local `docker-compose` path end-to-end and confirmed queue priority ordering with applied `Fan Score`.
+- 2026-05-02: During Kubernetes rollout verification, detected an RDS schema mismatch in the `ticketing-service` scheduler query and scheduled a follow-up revalidation after fixing the query.
