@@ -20,6 +20,8 @@ import LoginPage from './components/LoginPage.vue'
 import SignupPage from './components/SignupPage.vue'
 import BookingGuidePage from './components/BookingGuidePage.vue'
 import SupportPage from './components/SupportPage.vue'
+import OpsIncidentListPage from './components/ops/OpsIncidentListPage.vue'
+import OpsIncidentDetailPage from './components/ops/OpsIncidentDetailPage.vue'
 import type { BookingData, Seat } from './types'
 import { apiRequest } from './services/api'
 import { clearAuth, getToken, isLoggedIn } from './services/auth'
@@ -70,6 +72,7 @@ const validPaths = new Set([
   '/support',
   '/error',
   '/soldout',
+  '/ops',
 ])
 
 const protectedPaths = new Set([
@@ -90,6 +93,12 @@ const normalizedPath = computed(() => {
   }
 
   return '/main'
+})
+
+const opsIncidentId = computed(() => {
+  if (normalizedPath.value !== '/ops') return null
+  const params = new URLSearchParams(currentSearch.value)
+  return params.get('incident')
 })
 
 const selectedConcertId = computed(() => {
@@ -319,7 +328,34 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#f3f7fc] text-[#1d3a5b]">
+  <!-- 운영자 대시보드: 별도 다크 레이아웃 -->
+  <div v-if="normalizedPath === '/ops'" class="min-h-screen" style="background:#081326; color:#e2eaf4;">
+    <header class="sticky top-0 z-50 border-b" style="border-color:#1e3553; background:#081326;">
+      <div class="mx-auto max-w-[1440px] flex items-center justify-between px-6 py-3">
+        <div class="flex items-center gap-3">
+          <span class="text-base font-extrabold tracking-tight" style="color:#ff7a00;">🎫 FairlineTicket</span>
+          <span style="color:#1e3553;">/</span>
+          <span class="text-sm font-semibold" style="color:#7a9ab8;">결제 운영 대시보드</span>
+        </div>
+        <button class="text-sm px-3 py-1 rounded-lg" style="border:1px solid #1e3553; color:#e2eaf4;" @click="navigate('/main')">
+          ← 서비스로
+        </button>
+      </div>
+    </header>
+    <main class="mx-auto max-w-[1440px] px-6 py-8">
+      <OpsIncidentDetailPage
+        v-if="opsIncidentId"
+        :incident-id="opsIncidentId"
+        @back="navigate('/ops')"
+      />
+      <OpsIncidentListPage
+        v-else
+        @open-detail="(id) => navigate(`/ops?incident=${id}`)"
+      />
+    </main>
+  </div>
+
+  <div v-else class="min-h-screen bg-[#f3f7fc] text-[#1d3a5b]">
     <ConfirmModal
       v-if="showLogoutConfirm"
       message="로그아웃 하시겠습니까?"
@@ -427,5 +463,5 @@ onUnmounted(() => {
         <p class="mt-4 text-[#94a8bd]">Copyright © Fairline Ticket Corp. All Rights Reserved.</p>
       </div>
     </footer>
-  </div>
+  </div><!-- /v-else 서비스 레이아웃 -->
 </template>

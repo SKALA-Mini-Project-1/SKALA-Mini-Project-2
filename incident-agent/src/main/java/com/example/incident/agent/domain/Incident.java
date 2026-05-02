@@ -45,11 +45,20 @@ public class Incident {
     @Column(nullable = false)
     private OffsetDateTime lastDetectedAt;
 
+    private OffsetDateTime lastAnalyzedAt;
+    private Integer latestAnalysisVersion;
+    private Boolean needsHumanApproval;
+
     @Column(length = 100)
     private String openReasonSignal;
 
     @JdbcTypeCode(SqlTypes.JSON)
     private String currentStateJsonb;
+
+    private OffsetDateTime resolvedAt;
+
+    @Column(length = 100)
+    private String resolvedBy;
 
     @Column(nullable = false, updatable = false)
     private OffsetDateTime createdAt;

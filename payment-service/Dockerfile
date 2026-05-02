@@ -12,6 +12,9 @@ COPY incident-detector incident-detector
 COPY incident-agent incident-agent
 COPY incident-api incident-api
 COPY payment-service payment-service
+COPY incident-detector incident-detector
+COPY incident-agent incident-agent
+COPY incident-api incident-api
 
 RUN chmod +x gradlew && ./gradlew :payment-service:bootJar --no-daemon
 

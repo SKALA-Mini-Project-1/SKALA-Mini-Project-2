@@ -12,6 +12,9 @@ COPY incident-detector incident-detector
 COPY incident-agent incident-agent
 COPY incident-api incident-api
 COPY ticketing-service ticketing-service
+COPY incident-detector incident-detector
+COPY incident-agent incident-agent
+COPY incident-api incident-api
 
 RUN chmod +x gradlew && ./gradlew :ticketing-service:bootJar --no-daemon
 

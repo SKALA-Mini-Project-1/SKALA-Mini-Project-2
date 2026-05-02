@@ -12,6 +12,9 @@ COPY incident-detector incident-detector
 COPY incident-agent incident-agent
 COPY incident-api incident-api
 COPY user-auth-service user-auth-service
+COPY incident-detector incident-detector
+COPY incident-agent incident-agent
+COPY incident-api incident-api
 
 RUN chmod +x gradlew && ./gradlew :user-auth-service:bootJar --no-daemon
 
