@@ -69,7 +69,7 @@ pipeline {
                     env.CHANGED_SERVICES.split(',').each { svc ->
                         echo "========== Building: ${svc} =========="
                         sh """
-                            docker build --platform linux/amd64 \
+                            DOCKER_BUILDKIT=0 docker build \
                                 -t ${ECR_REGISTRY}/team4-${svc}:latest \
                                 -f ${svc}/Dockerfile .
                             docker push ${ECR_REGISTRY}/team4-${svc}:latest
@@ -85,7 +85,7 @@ pipeline {
             }
             steps {
                 sh '''
-                    docker build --no-cache --platform linux/amd64 \
+                    DOCKER_BUILDKIT=0 docker build --no-cache \
                         -t $ECR_REGISTRY/team4-frontend:latest \
                         -f frontend/Dockerfile ./frontend
                     docker push $ECR_REGISTRY/team4-frontend:latest
