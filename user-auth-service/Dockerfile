@@ -8,6 +8,9 @@ COPY concert-service concert-service
 COPY queue-service queue-service
 COPY ticketing-service ticketing-service
 COPY payment-service payment-service
+COPY incident-detector incident-detector
+COPY incident-agent incident-agent
+COPY incident-api incident-api
 COPY user-auth-service user-auth-service
 COPY incident-detector incident-detector
 COPY incident-agent incident-agent

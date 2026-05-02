@@ -40,9 +40,9 @@ public class FanScoreQueryRepository {
                 SELECT b.id AS booking_id,
                        b.user_id AS user_id,
                        s.concert_id AS concert_id
-                FROM bookings b
-                JOIN schedules s ON s.id = b.schedule_id
-                JOIN payments p ON p.booking_id = b.id
+                FROM ticketing.bookings b
+                JOIN concert.schedules s ON s.id = b.schedule_id
+                JOIN payment.payments p ON p.booking_id = b.id
                 WHERE b.id = ?
                   AND b.status = 'CONFIRMED'
                   AND b.confirmed_at IS NOT NULL
@@ -69,9 +69,9 @@ public class FanScoreQueryRepository {
                 SELECT b.id AS booking_id,
                        b.user_id AS user_id,
                        s.concert_id AS concert_id
-                FROM bookings b
-                JOIN schedules s ON s.id = b.schedule_id
-                JOIN payments p ON p.booking_id = b.id
+                FROM ticketing.bookings b
+                JOIN concert.schedules s ON s.id = b.schedule_id
+                JOIN payment.payments p ON p.booking_id = b.id
                 WHERE b.status = 'CONFIRMED'
                   AND b.confirmed_at IS NOT NULL
                   AND p.status = 'CONFIRMED'

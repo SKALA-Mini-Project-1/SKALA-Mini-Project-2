@@ -89,8 +89,9 @@
 - [x] `bookings.fan_score_applied_at` 반영 방식 확정
 - [x] `queue-service` `QueuePriorityPolicy` 실제 구현
 - [x] 서비스별 단위 테스트 작성 및 실행
-- [ ] Docker / Kubernetes 환경 변수 및 서비스 주소 반영
-- [ ] 로컬 다중 서비스 시나리오 검증 스크립트 정리
+- [x] Docker / Kubernetes 환경 변수 및 서비스 주소 반영
+- [x] 로컬 다중 서비스 시나리오 검증 스크립트 정리
+- [ ] Kubernetes RDS 스키마 차이 반영 후 `ticketing-service` 자동 반영 재검증
 
 ## 작업 로그
 
@@ -103,3 +104,5 @@
 - 2026-05-02: Added `ticketing-service` scheduler/startup sync flow for `CONFIRMED + concert ended + not applied` bookings.
 - 2026-05-02: Added `queue-service` `QueuePriorityPolicy` lookup flow via `concert-service` and `user-auth-service` internal APIs.
 - 2026-05-02: Verified core unit tests for `user-auth-service`, `ticketing-service`, and `queue-service`.
+- 2026-05-02: Verified local `docker-compose` flow end-to-end, including automatic `Fan Score` apply and queue priority ordering.
+- 2026-05-02: Found a Kubernetes/RDS issue where `ticketing-service` used unqualified `payments` joins in the scheduler query; updated the query to use explicit `ticketing`, `concert`, and `payment` schemas.
