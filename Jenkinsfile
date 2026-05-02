@@ -100,13 +100,13 @@ pipeline {
                         env.CHANGED_SERVICES.split(',').each { svc ->
                             echo "Deploying: ${svc}"
                             sh "kubectl rollout restart deployment/${svc} -n ${K8S_NAMESPACE}"
-                            sh "kubectl rollout status deployment/${svc} -n ${K8S_NAMESPACE} --timeout=120s"
+                            sh "kubectl rollout status deployment/${svc} -n ${K8S_NAMESPACE} --timeout=300s"
                         }
                     }
                     if (env.BUILD_FRONTEND == 'true') {
                         echo "Deploying: frontend"
                         sh "kubectl rollout restart deployment/frontend -n ${K8S_NAMESPACE}"
-                        sh "kubectl rollout status deployment/frontend -n ${K8S_NAMESPACE} --timeout=120s"
+                        sh "kubectl rollout status deployment/frontend -n ${K8S_NAMESPACE} --timeout=300s"
                     }
                     if (!env.CHANGED_SERVICES?.trim() && env.BUILD_FRONTEND != 'true') {
                         echo "No services changed. Skipping deploy."
