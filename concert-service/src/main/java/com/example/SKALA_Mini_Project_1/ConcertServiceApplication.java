@@ -9,6 +9,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
         "com.example.SKALA_Mini_Project_1.modules.concerts",
         "com.example.SKALA_Mini_Project_1.modules.seats"
 })
+// ci/cd test
 public class ConcertServiceApplication {
 
     public static void main(String[] args) {
