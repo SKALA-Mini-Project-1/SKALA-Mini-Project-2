@@ -69,7 +69,10 @@ public class UnconfirmedPaymentRule {
      * PendingCorrelationCheckScheduler에서 호출: deadline 초과된 미해결 건을 incident로 전환
      */
     public void raiseIncidentFromExpired(PendingCorrelation pending) {
-        UUID bookingId = extractUuidFromExtraJson(pending.getExtraJsonb(), "bookingId");
+        UUID bookingId   = extractUuidFromExtraJson(pending.getExtraJsonb(), "bookingId");
+        Long userId      = extractLongFromExtraJson(pending.getExtraJsonb(), "userId");
+        Long concertId   = extractLongFromExtraJson(pending.getExtraJsonb(), "concertId");
+        Long scheduleId  = extractLongFromExtraJson(pending.getExtraJsonb(), "scheduleId");
         IncidentCreateCommand cmd = new IncidentCreateCommand(
                 "UNCONFIRMED_PAYMENT",
                 pending.getKeyValue(),
@@ -78,7 +81,7 @@ public class UnconfirmedPaymentRule {
                 buildCurrentStateJson(pending),
                 UUID.fromString(pending.getKeyValue()),
                 bookingId,
-                null, null, null
+                userId, concertId, scheduleId
         );
         incidentWriteService.createOrUpdate(cmd);
         log.info("[unconfirmed-payment] Incident created from expired correlation. paymentId={}", pending.getKeyValue());
@@ -121,14 +124,41 @@ public class UnconfirmedPaymentRule {
 
     private String buildExtraJson(PaymentEventMessage event) {
         try {
-            return objectMapper.writeValueAsString(Map.of(
-                    "bookingId", String.valueOf(event.bookingId()),
-                    "fromStatus", orEmpty(event.fromStatus()),
-                    "toStatus", orEmpty(event.toStatus()),
-                    "occurredAt", orEmpty(event.occurredAt())
-            ));
+            Long userId = null, concertId = null, scheduleId = null;
+            if (event.payloadJson() != null) {
+                try {
+                    com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(event.payloadJson());
+                    if (!node.path("userId").isMissingNode() && !node.path("userId").isNull())
+                        userId = node.path("userId").asLong();
+                    if (!node.path("concertId").isMissingNode() && !node.path("concertId").isNull())
+                        concertId = node.path("concertId").asLong();
+                    if (!node.path("scheduleId").isMissingNode() && !node.path("scheduleId").isNull())
+                        scheduleId = node.path("scheduleId").asLong();
+                } catch (Exception ignored) {}
+            }
+            java.util.LinkedHashMap<String, Object> map = new java.util.LinkedHashMap<>();
+            map.put("bookingId", String.valueOf(event.bookingId()));
+            map.put("fromStatus", orEmpty(event.fromStatus()));
+            map.put("toStatus", orEmpty(event.toStatus()));
+            map.put("occurredAt", orEmpty(event.occurredAt()));
+            if (userId != null)     map.put("userId", userId);
+            if (concertId != null)  map.put("concertId", concertId);
+            if (scheduleId != null) map.put("scheduleId", scheduleId);
+            return objectMapper.writeValueAsString(map);
         } catch (JsonProcessingException e) {
             return "{}";
+        }
+    }
+
+    private Long extractLongFromExtraJson(String extraJson, String key) {
+        if (extraJson == null || extraJson.isBlank()) return null;
+        try {
+            Map<String, Object> parsed = objectMapper.readValue(extraJson, new TypeReference<>() {});
+            Object value = parsed.get(key);
+            if (value == null) return null;
+            return Long.parseLong(value.toString());
+        } catch (Exception e) {
+            return null;
         }
     }
 

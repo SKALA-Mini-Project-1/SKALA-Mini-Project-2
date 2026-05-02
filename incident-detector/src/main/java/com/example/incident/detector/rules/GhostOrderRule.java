@@ -96,6 +96,9 @@ public class GhostOrderRule {
      */
     public void raiseIncidentFromExpired(PendingCorrelation pending) {
         UUID paymentId = extractUuidFromExtraJson(pending.getExtraJsonb(), "paymentId");
+        Long userId    = extractLongFromExtraJson(pending.getExtraJsonb(), "userId");
+        Long concertId = extractLongFromExtraJson(pending.getExtraJsonb(), "concertId");
+        Long scheduleId = extractLongFromExtraJson(pending.getExtraJsonb(), "scheduleId");
         IncidentCreateCommand cmd = new IncidentCreateCommand(
                 "GHOST_ORDER",
                 pending.getKeyValue(),
@@ -104,7 +107,7 @@ public class GhostOrderRule {
                 buildCurrentStateJson(pending),
                 paymentId,
                 UUID.fromString(pending.getKeyValue()),
-                null, null, null
+                userId, concertId, scheduleId
         );
         incidentWriteService.createOrUpdate(cmd);
         log.info("[ghost-order] Incident created from expired correlation. bookingId={}", pending.getKeyValue());
@@ -112,10 +115,26 @@ public class GhostOrderRule {
 
     private String buildExtraJson(PaymentEventMessage event) {
         try {
-            return objectMapper.writeValueAsString(Map.of(
-                    "paymentId", String.valueOf(event.paymentId()),
-                    "occurredAt", orEmpty(event.occurredAt())
-            ));
+            // payloadJson에서 userId/concertId/scheduleId 추출 후 extraJsonb에 함께 저장
+            Long userId = null, concertId = null, scheduleId = null;
+            if (event.payloadJson() != null) {
+                try {
+                    com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(event.payloadJson());
+                    if (!node.path("userId").isMissingNode() && !node.path("userId").isNull())
+                        userId = node.path("userId").asLong();
+                    if (!node.path("concertId").isMissingNode() && !node.path("concertId").isNull())
+                        concertId = node.path("concertId").asLong();
+                    if (!node.path("scheduleId").isMissingNode() && !node.path("scheduleId").isNull())
+                        scheduleId = node.path("scheduleId").asLong();
+                } catch (Exception ignored) {}
+            }
+            java.util.LinkedHashMap<String, Object> map = new java.util.LinkedHashMap<>();
+            map.put("paymentId", String.valueOf(event.paymentId()));
+            map.put("occurredAt", orEmpty(event.occurredAt()));
+            if (userId != null)    map.put("userId", userId);
+            if (concertId != null) map.put("concertId", concertId);
+            if (scheduleId != null) map.put("scheduleId", scheduleId);
+            return objectMapper.writeValueAsString(map);
         } catch (JsonProcessingException e) {
             return "{}";
         }
@@ -139,15 +158,27 @@ public class GhostOrderRule {
     }
 
     private UUID extractUuidFromExtraJson(String extraJson, String key) {
-        if (extraJson == null || extraJson.isBlank()) {
-            return null;
-        }
+        if (extraJson == null || extraJson.isBlank()) return null;
         try {
-            Map<String, String> parsed = objectMapper.readValue(extraJson, new TypeReference<>() {});
-            String value = parsed.get(key);
-            return value != null && !value.isBlank() ? UUID.fromString(value) : null;
+            Map<String, Object> parsed = objectMapper.readValue(extraJson, new TypeReference<>() {});
+            Object value = parsed.get(key);
+            if (value == null) return null;
+            return UUID.fromString(value.toString());
         } catch (Exception e) {
             log.debug("[ghost-order] Failed to parse extraJson for key={}", key, e);
+            return null;
+        }
+    }
+
+    private Long extractLongFromExtraJson(String extraJson, String key) {
+        if (extraJson == null || extraJson.isBlank()) return null;
+        try {
+            Map<String, Object> parsed = objectMapper.readValue(extraJson, new TypeReference<>() {});
+            Object value = parsed.get(key);
+            if (value == null) return null;
+            return Long.parseLong(value.toString());
+        } catch (Exception e) {
+            log.debug("[ghost-order] Failed to parse extraJson for key={}, error={}", key, e.getMessage());
             return null;
         }
     }

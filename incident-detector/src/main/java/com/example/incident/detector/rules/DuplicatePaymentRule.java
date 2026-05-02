@@ -53,6 +53,19 @@ public class DuplicatePaymentRule {
             return;
         }
 
+        Long userId = null, concertId = null, scheduleId = null;
+        if (event.payloadJson() != null) {
+            try {
+                com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(event.payloadJson());
+                if (!node.path("userId").isMissingNode() && !node.path("userId").isNull())
+                    userId = node.path("userId").asLong();
+                if (!node.path("concertId").isMissingNode() && !node.path("concertId").isNull())
+                    concertId = node.path("concertId").asLong();
+                if (!node.path("scheduleId").isMissingNode() && !node.path("scheduleId").isNull())
+                    scheduleId = node.path("scheduleId").asLong();
+            } catch (Exception ignored) {}
+        }
+
         IncidentCreateCommand cmd = new IncidentCreateCommand(
                 "DUPLICATE_PAYMENT",
                 incidentKey,
@@ -61,7 +74,7 @@ public class DuplicatePaymentRule {
                 buildStateJson(event),
                 event.paymentId(),
                 event.bookingId(),
-                null, null, null
+                userId, concertId, scheduleId
         );
 
         incidentWriteService.createOrUpdate(cmd);
