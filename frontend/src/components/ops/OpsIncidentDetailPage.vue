@@ -99,6 +99,86 @@ function parseCurrentState(json: string | null): Record<string, string> {
   try { return JSON.parse(json) } catch { return {} }
 }
 
+function parseNestedJson(value: string | null | undefined): Record<string, unknown> {
+  if (!value) return {}
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {}
+  } catch {
+    return {}
+  }
+}
+
+const stateSnapshot = computed(() => parseCurrentState(incident.value?.currentState ?? null))
+const nestedExtraJson = computed(() => {
+  const extraJson = stateSnapshot.value.extraJson
+  return typeof extraJson === 'string' ? parseNestedJson(extraJson) : {}
+})
+
+function asDisplayValue(value: unknown): string | number | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return value
+  return null
+}
+
+function resourceValue(
+  primary: string | number | null | undefined,
+  ...fallbacks: unknown[]
+): string | number | null {
+  if (primary !== null && primary !== undefined && primary !== '') {
+    return primary
+  }
+  for (const fallback of fallbacks) {
+    const resolved = asDisplayValue(fallback)
+    if (resolved !== null && resolved !== '') {
+      return resolved
+    }
+  }
+  return null
+}
+
+const relatedResources = computed(() => {
+  const current = incident.value
+  if (!current) {
+    return {
+      primaryPaymentId: null,
+      primaryBookingId: null,
+      userId: null,
+      concertId: null,
+      scheduleId: null,
+    }
+  }
+
+  return {
+    primaryPaymentId: resourceValue(
+      current.primaryPaymentId,
+      stateSnapshot.value.paymentId,
+      nestedExtraJson.value.paymentId,
+    ),
+    primaryBookingId: resourceValue(
+      current.primaryBookingId,
+      stateSnapshot.value.bookingId,
+      nestedExtraJson.value.bookingId,
+    ),
+    userId: resourceValue(
+      current.userId,
+      stateSnapshot.value.userId,
+      nestedExtraJson.value.userId,
+    ),
+    concertId: resourceValue(
+      current.concertId,
+      stateSnapshot.value.concertId,
+      nestedExtraJson.value.concertId,
+    ),
+    scheduleId: resourceValue(
+      current.scheduleId,
+      stateSnapshot.value.scheduleId,
+      nestedExtraJson.value.scheduleId,
+    ),
+  }
+})
+
 function parseOutputJson(json: string | null): { recommendedActions?: Array<{ order: number; action: string; reason: string }>; suspectedRootCause?: string } {
   if (!json) return {}
   try { return JSON.parse(json) } catch { return {} }
@@ -240,7 +320,7 @@ function confidencePct(v: AnalysisVersion | null): number {
             <p class="section-title">📋 현재 상태 스냅샷</p>
             <div v-if="incident.currentState" class="snapshot-grid">
               <div
-                v-for="(val, key) in parseCurrentState(incident.currentState)"
+                v-for="(val, key) in stateSnapshot"
                 :key="key"
                 class="snapshot-item"
               >
@@ -257,23 +337,23 @@ function confidencePct(v: AnalysisVersion | null): number {
             <div class="resource-list">
               <div class="resource-row">
                 <span class="muted">primaryPaymentId</span>
-                <code>{{ incident.primaryPaymentId ?? '—' }}</code>
+                <code>{{ relatedResources.primaryPaymentId ?? '—' }}</code>
               </div>
               <div class="resource-row">
                 <span class="muted">primaryBookingId</span>
-                <code>{{ incident.primaryBookingId ?? '—' }}</code>
+                <code>{{ relatedResources.primaryBookingId ?? '—' }}</code>
               </div>
               <div class="resource-row">
                 <span class="muted">userId</span>
-                <code>{{ incident.userId ?? '—' }}</code>
+                <code>{{ relatedResources.userId ?? '—' }}</code>
               </div>
               <div class="resource-row">
                 <span class="muted">concertId</span>
-                <code>{{ incident.concertId ?? '—' }}</code>
+                <code>{{ relatedResources.concertId ?? '—' }}</code>
               </div>
               <div class="resource-row">
                 <span class="muted">scheduleId</span>
-                <code>{{ incident.scheduleId ?? '—' }}</code>
+                <code>{{ relatedResources.scheduleId ?? '—' }}</code>
               </div>
               <div class="resource-row">
                 <span class="muted">openReasonSignal</span>
