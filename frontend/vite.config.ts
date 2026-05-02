@@ -6,6 +6,7 @@ const concertTarget = process.env.VITE_CONCERT_API_URL ?? 'http://localhost:1808
 const queueTarget = process.env.VITE_QUEUE_API_URL ?? 'http://localhost:18083'
 const ticketingTarget = process.env.VITE_TICKETING_API_URL ?? 'http://localhost:18084'
 const paymentTarget = process.env.VITE_PAYMENT_API_URL ?? 'http://localhost:18085'
+const incidentApiTarget = process.env.VITE_INCIDENT_API_URL ?? 'http://localhost:18088'
 
 export default defineConfig({
   plugins: [vue()],
@@ -34,6 +35,10 @@ export default defineConfig({
       },
       '/api/payments': {
         target: paymentTarget,
+        changeOrigin: true
+      },
+      '/ops': {
+        target: incidentApiTarget,
         changeOrigin: true
       }
     }

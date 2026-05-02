@@ -69,15 +69,17 @@ pipeline {
             }
             steps {
                 script {
-                    env.CHANGED_SERVICES.split(',').each { svc ->
-                        echo "========== Building: ${svc} =========="
-                        sh """
-                            docker build --platform linux/amd64 \
-                                -t ${ECR_REGISTRY}/team4-${svc}:latest \
-                                -f ${svc}/Dockerfile .
-                            docker push ${ECR_REGISTRY}/team4-${svc}:latest
-                        """
+                    def parallelBuilds = env.CHANGED_SERVICES.split(',').collectEntries { svc ->
+                        ["Build ${svc}": {
+                            sh """
+                                docker build --platform linux/amd64 \
+                                    -t ${ECR_REGISTRY}/team4-${svc}:latest \
+                                    -f ${svc}/Dockerfile .
+                                docker push ${ECR_REGISTRY}/team4-${svc}:latest
+                            """
+                        }]
                     }
+                    parallel parallelBuilds
                 }
             }
         }
@@ -99,20 +101,27 @@ pipeline {
         stage('Deploy to EKS') {
             steps {
                 script {
+                    def parallelDeploys = [:]
+
                     if (env.CHANGED_SERVICES?.trim()) {
                         env.CHANGED_SERVICES.split(',').each { svc ->
-                            echo "Deploying: ${svc}"
-                            sh "kubectl rollout restart deployment/${svc} -n ${K8S_NAMESPACE}"
-                            sh "kubectl rollout status deployment/${svc} -n ${K8S_NAMESPACE} --timeout=300s"
+                            parallelDeploys["Deploy ${svc}"] = {
+                                sh "kubectl rollout restart deployment/${svc} -n ${K8S_NAMESPACE}"
+                                sh "kubectl rollout status deployment/${svc} -n ${K8S_NAMESPACE} --timeout=300s"
+                            }
                         }
                     }
                     if (env.BUILD_FRONTEND == 'true') {
-                        echo "Deploying: frontend"
-                        sh "kubectl rollout restart deployment/frontend -n ${K8S_NAMESPACE}"
-                        sh "kubectl rollout status deployment/frontend -n ${K8S_NAMESPACE} --timeout=300s"
+                        parallelDeploys["Deploy frontend"] = {
+                            sh "kubectl rollout restart deployment/frontend -n ${K8S_NAMESPACE}"
+                            sh "kubectl rollout status deployment/frontend -n ${K8S_NAMESPACE} --timeout=300s"
+                        }
                     }
-                    if (!env.CHANGED_SERVICES?.trim() && env.BUILD_FRONTEND != 'true') {
+
+                    if (parallelDeploys.isEmpty()) {
                         echo "No services changed. Skipping deploy."
+                    } else {
+                        parallel parallelDeploys
                     }
                 }
             }

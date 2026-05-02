@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.Optional;
@@ -19,6 +20,7 @@ import java.util.UUID;
 @Service
 @Slf4j
 @RequiredArgsConstructor
+@Transactional
 public class AnalysisService {
 
     private final IncidentAnalysisVersionRepository versionRepository;
@@ -46,7 +48,7 @@ public class AnalysisService {
         Incident incident = incidentOpt.get();
         String inputJson = inputBuilder.build(incident);
 
-        markRunning(version, inputJson);
+        markRunning(incident, version, inputJson);
 
         String systemPrompt = systemPromptBuilder.build();
         Exception lastError = null;
@@ -63,7 +65,7 @@ public class AnalysisService {
                     continue;
                 }
 
-                markCompleted(version, llmResponse, llmResponse.text());
+                markCompleted(incident, version, llmResponse, llmResponse.text());
                 return;
 
             } catch (Exception e) {
@@ -73,25 +75,32 @@ public class AnalysisService {
             }
         }
 
-        markFailed(version, lastError != null ? lastError.getMessage() : "Unknown error after retries");
+        markFailed(incident, version, lastError != null ? lastError.getMessage() : "Unknown error after retries");
     }
 
-    private void markRunning(IncidentAnalysisVersion version, String inputJson) {
+    private void markRunning(Incident incident, IncidentAnalysisVersion version, String inputJson) {
+        OffsetDateTime now = OffsetDateTime.now();
+
         version.setAnalysisStatus("RUNNING");
-        version.setStartedAt(OffsetDateTime.now());
+        version.setStartedAt(now);
         version.setInputSnapshotJsonb(inputJson);
         version.setLlmModel(llmModel);
         versionRepository.save(version);
+
+        incident.setStatus("ANALYZING");
+        incident.setUpdatedAt(now);
+        incidentRepository.save(incident);
     }
 
-    private void markCompleted(IncidentAnalysisVersion version, LlmResponse llmResponse, String outputJson) {
+    private void markCompleted(Incident incident, IncidentAnalysisVersion version, LlmResponse llmResponse, String outputJson) {
         AnalysisOutputValidator.ValidationResult validated = outputValidator.validate(outputJson);
         String summary = validated.parsed() != null
                 ? validated.parsed().path("summary").asText("")
                 : "";
+        OffsetDateTime now = OffsetDateTime.now();
 
         version.setAnalysisStatus("COMPLETED");
-        version.setCompletedAt(OffsetDateTime.now());
+        version.setCompletedAt(now);
         version.setOutputJsonb(outputJson);
         version.setSummaryText(summary);
         version.setPromptTokens(llmResponse.inputTokens());
@@ -100,18 +109,41 @@ public class AnalysisService {
         version.setOutputSchemaVersion("incident-analysis-output.v1");
         versionRepository.save(version);
 
+        incident.setStatus("ANALYZED");
+        incident.setLastAnalyzedAt(now);
+        incident.setUpdatedAt(now);
+        incidentRepository.save(incident);
+
         log.info("[agent] Analysis completed. versionId={} incidentId={} tokens={}+{}",
                 version.getAnalysisVersionId(), version.getIncidentId(),
                 llmResponse.inputTokens(), llmResponse.outputTokens());
     }
 
-    private void markFailed(IncidentAnalysisVersion version, String reason) {
+    private void markFailed(Incident incident, IncidentAnalysisVersion version, String reason) {
+        OffsetDateTime now = OffsetDateTime.now();
+
         version.setAnalysisStatus("FAILED");
-        version.setCompletedAt(OffsetDateTime.now());
+        version.setCompletedAt(now);
         version.setFailureReason(reason);
         versionRepository.save(version);
 
+        incident.setStatus("OPEN");
+        incident.setUpdatedAt(now);
+        incidentRepository.save(incident);
+
         log.error("[agent] Analysis failed. versionId={} incidentId={} reason={}",
+                version.getAnalysisVersionId(), version.getIncidentId(), reason);
+    }
+
+    private void markFailed(IncidentAnalysisVersion version, String reason) {
+        OffsetDateTime now = OffsetDateTime.now();
+
+        version.setAnalysisStatus("FAILED");
+        version.setCompletedAt(now);
+        version.setFailureReason(reason);
+        versionRepository.save(version);
+
+        log.error("[agent] Analysis failed without incident row. versionId={} incidentId={} reason={}",
                 version.getAnalysisVersionId(), version.getIncidentId(), reason);
     }
 }
