@@ -6,7 +6,6 @@ pipeline {
         // ECR_REGISTRY: Jenkins 서버 환경변수로 관리 (Manage Jenkins → System → Global properties)
         K8S_NAMESPACE   = 'fairline'
         DOCKER_HOST     = 'tcp://localhost:2375'
-        DOCKER_BUILDKIT = '1'
         GITOPS_REPO     = 'https://github.com/SKALA-Mini-Project-1/fairline-k8s.git'
     }
 
