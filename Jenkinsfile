@@ -2,11 +2,12 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION    = 'ap-northeast-2'
+        AWS_REGION      = 'ap-northeast-2'
         // ECR_REGISTRY: Jenkins 서버 환경변수로 관리 (Manage Jenkins → System → Global properties)
-        K8S_NAMESPACE = 'fairline'
-        DOCKER_HOST   = 'tcp://localhost:2375'
-        GITOPS_REPO   = 'https://github.com/SKALA-Mini-Project-1/fairline-k8s.git'
+        K8S_NAMESPACE   = 'fairline'
+        DOCKER_HOST     = 'tcp://localhost:2375'
+        DOCKER_BUILDKIT = '1'
+        GITOPS_REPO     = 'https://github.com/SKALA-Mini-Project-1/fairline-k8s.git'
     }
 
     stages {
@@ -119,7 +120,7 @@ pipeline {
 
                     withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
                         sh """
-                            git clone https://x-access-token:${GITHUB_TOKEN}@github.com/SKALA-Mini-Project-1/fairline-k8s.git ${workDir}
+                            git clone https://x-access-token:\${GITHUB_TOKEN}@github.com/SKALA-Mini-Project-1/fairline-k8s.git ${workDir}
                             git -C ${workDir} config user.email "jenkins@fairline"
                             git -C ${workDir} config user.name "Jenkins"
                         """
