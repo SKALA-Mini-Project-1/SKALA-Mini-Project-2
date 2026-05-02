@@ -26,7 +26,10 @@ pipeline {
                         'user-auth-service',
                         'queue-service',
                         'ticketing-service',
-                        'payment-service'
+                        'payment-service',
+                        'incident-detector',
+                        'incident-agent',
+                        'incident-api'
                     ]
 
                     env.CHANGED_SERVICES = springServices
