@@ -6,6 +6,7 @@ import com.example.SKALA_Mini_Project_1.integration.userauth.UserAuthClient;
 import com.example.SKALA_Mini_Project_1.modules.waiting.config.QueueRuntimeProperties;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.QueueStatusResponse;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.TicketingStartResponse;
+import com.example.SKALA_Mini_Project_1.modules.waiting.observability.QueueMetrics;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.RedisConnectionFailureException;
@@ -70,56 +71,90 @@ public class QueueService {
     private final QueuePriorityService queuePriorityService;
     private final QueueRedisRetryPolicy queueRedisRetryPolicy;
     private final QueueRuntimeProperties queueRuntimeProperties;
+    private final QueueMetrics queueMetrics;
 
     public TicketingStartResponse startTicketing(Long concertId, Long scheduleId, Long userId) {
-        userAuthClient.ensureUserExists(userId);
+        return queueMetrics.observe(
+                "fairline.queue.ticketing",
+                "queueService#startTicketing",
+                "start_ticketing",
+                () -> {
+                    userAuthClient.ensureUserExists(userId);
 
-        validateScheduleBelongsToConcert(concertId, scheduleId);
+                    validateScheduleBelongsToConcert(concertId, scheduleId);
 
-        long fanWeightMillis = queuePriorityService.getQueuePriorityBoostMillis(userId, concertId);
-        long rank = enterQueue(concertId, scheduleId, String.valueOf(userId), fanWeightMillis);
-        return TicketingStartResponse.waiting(rank + 1);
+                    long fanWeightMillis = queuePriorityService.getQueuePriorityBoostMillis(userId, concertId);
+                    long rank = enterQueue(concertId, scheduleId, String.valueOf(userId), fanWeightMillis);
+                    queueMetrics.incrementRequest("start_ticketing", "accepted");
+                    queueMetrics.recordWaitPosition(rank + 1);
+                    return TicketingStartResponse.waiting(rank + 1);
+                }
+        );
     }
 
     public QueueStatusResponse getStatus(Long concertId, Long scheduleId, Long userId) {
-        validateScheduleBelongsToConcert(concertId, scheduleId);
+        return queueMetrics.observe(
+                "fairline.queue.ticketing",
+                "queueService#getStatus",
+                "get_status",
+                () -> {
+                    validateScheduleBelongsToConcert(concertId, scheduleId);
 
-        String userKey = String.valueOf(userId);
-        String queueKey = getQueueKey(concertId, scheduleId);
+                    String userKey = String.valueOf(userId);
+                    String queueKey = getQueueKey(concertId, scheduleId);
 
-        try {
-            Long rank = runWithRedisRetry(() -> redisTemplate.opsForZSet().rank(queueKey, userKey));
-            if (rank == null) {
-                return QueueStatusResponse.waiting(null);
-            }
+                    try {
+                        Long rank = runWithRedisRetry(() -> redisTemplate.opsForZSet().rank(queueKey, userKey));
+                        if (rank == null) {
+                            queueMetrics.incrementRequest("get_status", "not_in_queue");
+                            return QueueStatusResponse.waiting(null);
+                        }
 
-            refreshQueueHeartbeat(concertId, scheduleId, userKey);
+                        refreshQueueHeartbeat(concertId, scheduleId, userKey);
 
-            String entryToken = tryAdmitAndIssueEntryToken(concertId, scheduleId, userId);
-            if (entryToken != null) {
-                cleanupQueueIndexIfEmpty(queueKey);
-                clearQueueHeartbeat(concertId, scheduleId, userKey);
-                return QueueStatusResponse.enter(entryToken);
-            }
+                        String entryToken = tryAdmitAndIssueEntryToken(concertId, scheduleId, userId);
+                        if (entryToken != null) {
+                            cleanupQueueIndexIfEmpty(queueKey);
+                            clearQueueHeartbeat(concertId, scheduleId, userKey);
+                            queueMetrics.incrementEntryTokenIssued();
+                            queueMetrics.incrementRequest("get_status", "enter");
+                            return QueueStatusResponse.enter(entryToken);
+                        }
 
-            return QueueStatusResponse.waiting(rank + 1);
-        } catch (RuntimeException e) {
-            if (isRedisFailure(e)) {
-                return QueueStatusResponse.waiting(null);
-            }
-            throw e;
-        }
+                        queueMetrics.incrementRequest("get_status", "waiting");
+                        queueMetrics.recordWaitPosition(rank + 1);
+                        return QueueStatusResponse.waiting(rank + 1);
+                    } catch (RuntimeException e) {
+                        if (isRedisFailure(e)) {
+                            queueMetrics.incrementRedisFailure("get_status");
+                            queueMetrics.incrementRequest("get_status", "redis_fallback");
+                            return QueueStatusResponse.waiting(null);
+                        }
+                        throw e;
+                    }
+                }
+        );
     }
 
     public boolean leaveQueue(Long concertId, Long scheduleId, Long userId) {
-        validateScheduleBelongsToConcert(concertId, scheduleId);
-        String queueKey = getQueueKey(concertId, scheduleId);
-        Long removed = runWithRedisRetry(() ->
-                redisTemplate.opsForZSet().remove(queueKey, String.valueOf(userId))
+        return queueMetrics.observe(
+                "fairline.queue.ticketing",
+                "queueService#leaveQueue",
+                "leave_queue",
+                () -> {
+                    validateScheduleBelongsToConcert(concertId, scheduleId);
+                    String queueKey = getQueueKey(concertId, scheduleId);
+                    Long removed = runWithRedisRetry(() ->
+                            redisTemplate.opsForZSet().remove(queueKey, String.valueOf(userId))
+                    );
+                    cleanupQueueIndexIfEmpty(queueKey);
+                    clearQueueHeartbeat(concertId, scheduleId, String.valueOf(userId));
+
+                    boolean left = removed != null && removed > 0;
+                    queueMetrics.incrementRequest("leave_queue", left ? "removed" : "not_found");
+                    return left;
+                }
         );
-        cleanupQueueIndexIfEmpty(queueKey);
-        clearQueueHeartbeat(concertId, scheduleId, String.valueOf(userId));
-        return removed != null && removed > 0;
     }
 
     public boolean hasQueueHeartbeat(Long concertId, Long scheduleId, String userId) {
