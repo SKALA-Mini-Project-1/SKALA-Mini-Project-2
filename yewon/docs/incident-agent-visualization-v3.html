@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>결제 운영 진단 에이전트 — 아키텍처 v3</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#f0f2f5;font-family:'Segoe UI',system-ui,sans-serif;font-size:12px;color:#1a1a2e;padding:32px 28px 60px;}
+
+/* ── TITLE ── */
+.page-title{font-size:20px;font-weight:800;color:#1a1a2e;margin-bottom:4px;}
+.page-sub{font-size:12px;color:#888;margin-bottom:28px;}
+
+/* ── SECTION LABELS ── */
+.slabel{
+  font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;
+  color:#aaa;margin-bottom:8px;
+}
+
+/* ── DASHED CONTAINER ── */
+.dbox{
+  border:2px dashed #c8ccd4;border-radius:14px;padding:16px;
+  background:#fafbfc;position:relative;
+}
+.dbox-title{
+  position:absolute;top:-10px;left:14px;
+  background:#fafbfc;padding:0 6px;
+  font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#555;
+}
+
+/* ── COMPONENT BOX ── */
+.cbox{
+  background:#fff;border:1.5px solid #e2e5ea;border-radius:8px;
+  padding:9px 12px;box-shadow:0 1px 3px rgba(0,0,0,.07);
+}
+.cbox-icon{font-size:16px;margin-bottom:4px;}
+.cbox-name{font-size:11px;font-weight:700;color:#1a1a2e;}
+.cbox-sub{font-size:10px;color:#888;line-height:1.5;margin-top:2px;}
+.cbox-mono{font-family:monospace;font-size:10px;color:#555;line-height:1.7;margin-top:3px;}
+
+/* db table list */
+.dbtable{
+  background:#f8f9fb;border:1px solid #e8eaed;border-radius:5px;
+  padding:5px 10px;margin-top:6px;
+}
+.dbtable .row{display:flex;align-items:center;gap:6px;padding:2px 0;font-size:10px;color:#444;}
+.dbtable .row::before{content:'▤';color:#aaa;font-size:9px;}
+
+/* ── ARROWS ── */
+.arr-down{text-align:center;color:#bbb;font-size:13px;line-height:1;padding:3px 0;position:relative;}
+.arr-down .alabel{font-size:9px;color:#aaa;font-style:italic;display:block;margin-top:1px;}
+.arr-right{display:flex;align-items:center;justify-content:center;color:#bbb;font-size:13px;padding:0 6px;flex-shrink:0;}
+.arr-right .alabel{font-size:9px;color:#aaa;writing-mode:horizontal-tb;white-space:nowrap;}
+
+/* ── STATUS PILLS ── */
+.spill{display:inline-block;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:800;letter-spacing:.04em;margin-right:3px;}
+.sp-pending{background:#fef3c7;color:#d97706;}
+.sp-running{background:#dbeafe;color:#2563eb;}
+.sp-done{background:#dcfce7;color:#16a34a;}
+.sp-failed{background:#fee2e2;color:#dc2626;}
+
+/* ── ACCENT BORDER COLORS ── */
+.ac-orange{border-top:3px solid #f97316!important;}
+.ac-blue{border-top:3px solid #2563eb!important;}
+.ac-purple{border-top:3px solid #7c3aed!important;}
+.ac-green{border-top:3px solid #16a34a!important;}
+.ac-yellow{border-top:3px solid #eab308!important;}
+.ac-red{border-top:3px solid #dc2626!important;}
+.ac-cyan{border-top:3px solid #0891b2!important;}
+.ac-pink{border-top:3px solid #db2777!important;}
+
+/* ── KAFKA PILL ── */
+.kafka-pill{
+  background:#fff4e6;border:1.5px solid #f97316;border-radius:7px;
+  padding:7px 14px;text-align:center;
+}
+.kafka-pill .kname{font-size:11px;font-weight:700;color:#ea6c00;}
+.kafka-pill .ktopic{font-family:monospace;font-size:10px;color:#888;margin-top:2px;}
+.kafka-pill .kpart{font-size:9px;color:#bbb;margin-top:1px;}
+
+/* ── GRID HELPERS ── */
+.row-flex{display:flex;align-items:stretch;gap:10px;}
+.col{flex:1;}
+.center-col{display:flex;flex-direction:column;align-items:center;justify-content:center;}
+
+/* ─── MAIN LAYOUT ─── */
+.layout{display:flex;flex-direction:column;gap:6px;max-width:1280px;margin:0 auto;}
+
+/* row heights by content */
+.zone{width:100%;}
+
+/* ── RULE ENGINE CARD ── */
+.rule-card{
+  flex:1;background:#fff;border:1.5px solid #e2e5ea;border-radius:8px;
+  padding:8px 10px;box-shadow:0 1px 3px rgba(0,0,0,.06);
+}
+.rule-title{font-size:10px;font-weight:700;margin-bottom:3px;}
+.rule-sub{font-size:9px;color:#888;line-height:1.5;}
+.rule-write{font-size:9px;color:#0891b2;margin-top:3px;font-style:italic;}
+
+/* ── RDS TABLE GRID ── */
+.rds-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;}
+.rds-cell{
+  background:#fff;border:1.5px solid #bae6fd;border-radius:7px;
+  padding:7px 9px;
+}
+.rds-cell .rname{font-size:10px;font-weight:700;color:#0284c7;}
+.rds-cell .rdesc{font-size:9px;color:#888;margin-top:2px;line-height:1.4;}
+.rds-cell .rwriter{font-size:8px;color:#aaa;margin-top:3px;}
+
+/* ── AGENT STEPS ── */
+.agent-steps{display:flex;align-items:stretch;gap:0;}
+.astep{
+  flex:1;padding:8px 10px;border-right:1px solid #f0f0f0;
+  display:flex;flex-direction:column;gap:4px;position:relative;
+}
+.astep:last-child{border-right:none;}
+.astep::after{
+  content:'→';position:absolute;right:-9px;top:50%;transform:translateY(-50%);
+  font-size:14px;color:#ccc;background:#fff;padding:1px;z-index:1;
+}
+.astep:last-child::after{display:none;}
+.astep-num{
+  width:18px;height:18px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:9px;font-weight:800;background:#ede9fe;color:#7c3aed;
+  flex-shrink:0;
+}
+.astep-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#7c3aed;}
+.astep-name{font-size:11px;font-weight:700;color:#1a1a2e;line-height:1.3;}
+.astep-sub{font-size:9px;color:#888;line-height:1.5;}
+.astep-code{font-family:monospace;font-size:9px;color:#555;background:#f5f5f5;border-radius:3px;padding:1px 5px;margin-top:2px;display:inline-block;}
+
+/* ── API ENDPOINT LIST ── */
+.ep-list{display:flex;flex-direction:column;gap:4px;margin-top:6px;}
+.ep-row{display:flex;align-items:center;gap:6px;}
+.ep-method{font-size:8px;font-weight:800;padding:1px 5px;border-radius:3px;min-width:30px;text-align:center;}
+.ep-get{background:#dbeafe;color:#2563eb;}
+.ep-post{background:#dcfce7;color:#16a34a;}
+.ep-path{font-family:monospace;font-size:9px;color:#555;}
+.ep-desc{font-size:9px;color:#aaa;margin-left:auto;}
+
+/* ── CONNECTION ANNOTATION ── */
+.conn-note{
+  font-size:9px;color:#aaa;font-style:italic;text-align:center;
+  padding:1px 0;
+}
+
+/* ── MERMAID SECTION ── */
+.mermaid-section{
+  margin-top:36px;background:#1e1e2e;border-radius:12px;padding:24px 28px;
+  max-width:1280px;margin-left:auto;margin-right:auto;
+}
+.mermaid-section h2{color:#cdd6f4;font-size:14px;font-weight:700;margin-bottom:14px;}
+.mermaid-code{
+  font-family:'Fira Code',monospace;font-size:11px;line-height:1.8;
+  color:#cdd6f4;white-space:pre;overflow-x:auto;
+}
+.mc-comment{color:#6c7086;}
+.mc-key{color:#89b4fa;}
+.mc-str{color:#a6e3a1;}
+.mc-kw{color:#cba6f7;}
+.mc-node{color:#f9e2af;}
+</style>
+</head>
+<body>
+
+<div class="page-title">🔍 결제 운영 진단 에이전트 — 시스템 아키텍처 v3</div>
+<div class="page-sub">Payment Incident Detection &amp; LLM Analysis System · 전체 컴포넌트 · 정밀 데이터 흐름</div>
+
+<div class="layout">
+
+  <!-- ══════════════════════════════════════════════════════
+       ROW 1 : EVENT SOURCES
+  ══════════════════════════════════════════════════════ -->
+  <div class="row-flex" style="align-items:stretch;">
+
+    <!-- PAYMENT SERVICE -->
+    <div class="dbox" style="flex:1;">
+      <span class="dbox-title">PAYMENT SERVICE</span>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:4px;">
+        <div class="cbox ac-orange" style="width:100%;text-align:center;">
+          <div class="cbox-icon">👤</div>
+          <div class="cbox-name">payment confirm</div>
+          <div class="cbox-sub">Toss Payments 결제 완료 콜백</div>
+        </div>
+        <div class="arr-down">↓<span class="alabel">write</span></div>
+        <div class="cbox" style="width:100%;">
+          <div class="cbox-name">🗄️ Payment DB</div>
+          <div class="dbtable">
+            <div class="row">payment_event &nbsp;<span style="color:#bbb">(Outbox)</span></div>
+            <div class="row">payments</div>
+          </div>
+        </div>
+        <div class="arr-down">↓<span class="alabel">polling</span></div>
+        <div class="cbox ac-blue" style="width:100%;text-align:center;">
+          <div class="cbox-icon">🔄</div>
+          <div class="cbox-name">Scheduler</div>
+          <div class="cbox-sub">Polling payment_event<br>미발행 이벤트 → Kafka Produce</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- center spacer + cross arrow -->
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:16px;gap:4px;min-width:70px;">
+      <div style="font-size:9px;color:#aaa;text-align:center;">payment.events.v1</div>
+      <div style="font-size:18px;color:#bbb;">→</div>
+    </div>
+
+    <!-- KAFKA -->
+    <div style="flex:0.7;display:flex;flex-direction:column;justify-content:center;gap:10px;">
+      <div class="slabel" style="text-align:center;">MESSAGE BROKER</div>
+      <div class="kafka-pill">
+        <div style="font-size:18px;">🔗</div>
+        <div class="kname">Kafka Topic</div>
+        <div class="ktopic">payment.events.v1</div>
+        <div class="kpart">3 partitions · groupId: incident-detector</div>
+      </div>
+      <div class="kafka-pill">
+        <div style="font-size:18px;">🔗</div>
+        <div class="kname">Kafka Topic</div>
+        <div class="ktopic">ticketing.events.v1</div>
+        <div class="kpart">3 partitions · groupId: incident-detector</div>
+      </div>
+    </div>
+
+    <!-- cross arrow → ticketing -->
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;min-width:80px;">
+      <div style="text-align:center;">
+        <div style="font-size:18px;color:#bbb;">→</div>
+        <div style="font-size:9px;color:#aaa;">Consume</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:18px;color:#bbb;">←</div>
+        <div style="font-size:9px;color:#aaa;">Produce</div>
+      </div>
+    </div>
+
+    <!-- TICKETING SERVICE -->
+    <div class="dbox" style="flex:1;">
+      <span class="dbox-title">TICKETING SERVICE</span>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:4px;">
+        <div class="cbox ac-orange" style="width:100%;text-align:center;">
+          <div class="cbox-icon">⚙️</div>
+          <div class="cbox-name">Event Consumer</div>
+          <div class="cbox-sub">Kafka Listener<br><span style="font-family:monospace;font-size:9px;">payment.events.v1</span></div>
+        </div>
+        <div class="arr-down">↓<span class="alabel">write</span></div>
+        <div class="cbox" style="width:100%;">
+          <div class="cbox-name">🗄️ Ticketing DB</div>
+          <div class="dbtable">
+            <div class="row">ticketing_outbox &nbsp;<span style="color:#bbb">(Outbox)</span></div>
+            <div class="row">ticketing_inbox_events</div>
+          </div>
+        </div>
+        <div class="arr-down">↓<span class="alabel">polling</span></div>
+        <div class="cbox ac-blue" style="width:100%;text-align:center;">
+          <div class="cbox-icon">🔄</div>
+          <div class="cbox-name">Scheduler</div>
+          <div class="cbox-sub">Polling ticketing_outbox<br>미발행 이벤트 → Kafka Produce</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /row1 -->
+
+  <!-- down arrows from kafka to detector -->
+  <div style="display:flex;justify-content:center;gap:4px;padding:0 0 2px;">
+    <div style="text-align:center;min-width:120px;">
+      <div style="color:#bbb;font-size:14px;">↓</div>
+      <div style="font-size:9px;color:#aaa;">Consume (payment)</div>
+    </div>
+    <div style="min-width:200px;"></div>
+    <div style="text-align:center;min-width:120px;">
+      <div style="color:#bbb;font-size:14px;">↓</div>
+      <div style="font-size:9px;color:#aaa;">Consume (ticketing)</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       ROW 2 : INCIDENT DETECTOR
+  ══════════════════════════════════════════════════════ -->
+  <div class="dbox">
+    <span class="dbox-title">INCIDENT DETECTOR &nbsp;·&nbsp; port 18086 &nbsp;·&nbsp; groupId: incident-detector</span>
+    <div style="display:flex;flex-direction:column;gap:8px;padding-top:6px;">
+
+      <!-- Kafka Listeners -->
+      <div class="row-flex" style="gap:10px;">
+        <div class="cbox ac-blue" style="flex:1;text-align:center;">
+          <div class="cbox-name">📥 KafkaListener-1</div>
+          <div class="cbox-sub">Consumer Container #0<br><span style="font-family:monospace;font-size:9px;">payment.events.v1</span><br>partitions: [0, 1, 2]</div>
+        </div>
+        <div style="display:flex;align-items:center;min-width:30px;justify-content:center;color:#bbb;">→</div>
+        <div style="flex:3;display:flex;flex-direction:column;gap:6px;">
+          <div style="font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:2px;">Rule Engines &nbsp;— payment events</div>
+          <div style="display:flex;gap:6px;">
+            <div class="rule-card ac-yellow">
+              <div class="rule-title" style="color:#d97706;">🔁 DuplicatePaymentRule</div>
+              <div class="rule-sub">
+                PAYMENT_COMPLETED 수신<br>
+                <span style="font-family:monospace;font-size:8px;">dedupe_key = userId:concertId:scheduleId</span><br>
+                inbox에 동일 키 존재 → 중복 결제 탐지
+              </div>
+              <div class="rule-write">→ detector_inbox_events (upsert dedupe)<br>→ incidents (DUPLICATE_PAYMENT · CRITICAL)<br>→ incident_analysis_versions (PENDING)</div>
+            </div>
+            <div class="rule-card ac-blue">
+              <div class="rule-title" style="color:#2563eb;">💸 PaymentMismatchRule</div>
+              <div class="rule-sub">
+                PAYMENT_COMPLETED 수신<br>
+                paidAmount vs expectedAmount 비교<br>
+                허용 오차 0원 초과 시 탐지
+              </div>
+              <div class="rule-write">→ incidents (PAYMENT_MISMATCH · HIGH)<br>→ incident_analysis_versions (PENDING)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row-flex" style="gap:10px;">
+        <div class="cbox ac-purple" style="flex:1;text-align:center;">
+          <div class="cbox-name">📥 KafkaListener-2</div>
+          <div class="cbox-sub">Consumer Container #1<br><span style="font-family:monospace;font-size:9px;">ticketing.events.v1</span><br>partitions: [0, 1, 2]</div>
+        </div>
+        <div style="display:flex;align-items:center;min-width:30px;justify-content:center;color:#bbb;">→</div>
+        <div style="flex:3;display:flex;flex-direction:column;gap:6px;">
+          <div style="font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:2px;">Rule Engines &nbsp;— ticketing events + cross-topic</div>
+          <div style="display:flex;gap:6px;">
+            <div class="rule-card ac-red">
+              <div class="rule-title" style="color:#dc2626;">👻 GhostOrderRule</div>
+              <div class="rule-sub">
+                <b>payment</b>: PAYMENT_COMPLETED → pending_correlations 저장<br>
+                <span style="font-family:monospace;font-size:8px;">deadline = receivedAt + 5min</span><br>
+                <b>ticketing</b>: BOOKING_CONFIRMED → pending resolved<br>
+                Scheduler: deadline 초과 미해소 → 탐지
+              </div>
+              <div class="rule-write">→ detector_pending_correlations (교차 추적)<br>→ incidents (GHOST_ORDER · HIGH)<br>→ incident_analysis_versions (PENDING)</div>
+            </div>
+            <div class="rule-card ac-pink">
+              <div class="rule-title" style="color:#db2777;">🧟 ZombieHoldRule</div>
+              <div class="rule-sub">
+                BOOKING_CANCELLED / HOLD_EXPIRED 수신<br>
+                <span style="font-family:monospace;font-size:8px;">check_after_at = now + 2min</span><br>
+                Scheduler: Redis <span style="font-family:monospace;font-size:8px;">seat:hold:{bookingId}</span> 키 잔류 확인
+              </div>
+              <div class="rule-write">→ detector_zombie_candidates (Redis 폴링 대상)<br>→ incidents (ZOMBIE_HOLD · MEDIUM)<br>→ incident_analysis_versions (PENDING)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Schedulers inside detector -->
+      <div style="display:flex;gap:6px;align-items:center;padding-top:2px;">
+        <div style="font-size:9px;color:#aaa;min-width:80px;">내부 Scheduler</div>
+        <div class="cbox" style="flex:1;padding:6px 10px;">
+          <div style="font-size:9px;font-weight:700;color:#dc2626;">⏱ GhostOrder Scheduler</div>
+          <div style="font-size:9px;color:#888;">pending_correlations WHERE deadline &lt; now() AND resolved=false → GhostOrder 인시던트 생성</div>
+        </div>
+        <div style="color:#bbb;font-size:13px;padding:0 4px;">│</div>
+        <div class="cbox" style="flex:1;padding:6px 10px;">
+          <div style="font-size:9px;font-weight:700;color:#db2777;">⏱ ZombieHold Scheduler</div>
+          <div style="font-size:9px;color:#888;">zombie_candidates WHERE check_after_at &lt; now() AND checked=false → Redis 키 확인 → 잔류 시 인시던트 생성</div>
+        </div>
+        <div style="color:#bbb;font-size:13px;padding:0 4px;">│</div>
+        <div class="cbox" style="flex:0.6;padding:6px 10px;text-align:center;">
+          <div style="font-size:12px;">🔴</div>
+          <div style="font-size:9px;font-weight:700;color:#555;">Redis</div>
+          <div style="font-size:9px;color:#888;">seat:hold:{bookingId}</div>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- /detector -->
+
+  <!-- down arrow to RDS -->
+  <div style="display:flex;justify-content:center;gap:40px;">
+    <div style="text-align:center;">
+      <div style="color:#bbb;font-size:14px;">↓</div>
+      <div style="font-size:9px;color:#aaa;">upsert incidents</div>
+    </div>
+    <div style="text-align:center;">
+      <div style="color:#bbb;font-size:14px;">↓</div>
+      <div style="font-size:9px;color:#aaa;">create PENDING analysis_version</div>
+    </div>
+    <div style="text-align:center;">
+      <div style="color:#bbb;font-size:14px;">↓</div>
+      <div style="font-size:9px;color:#aaa;">write inbox / pending / zombie</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       ROW 3 : SHARED RDS
+  ══════════════════════════════════════════════════════ -->
+  <div class="dbox" style="border-color:#7dd3fc;background:#f0f9ff;">
+    <span class="dbox-title" style="background:#f0f9ff;color:#0284c7;">SHARED RDS — incident schema &nbsp;(PostgreSQL 16)</span>
+    <div class="rds-grid" style="padding-top:6px;">
+      <div class="rds-cell" style="border-color:#fca5a5;">
+        <div class="rname" style="color:#dc2626;">incidents</div>
+        <div class="rdesc">인시던트 원장<br>status · severity · confidence</div>
+        <div class="rwriter">Writer: detector (upsert) / api (status update)</div>
+      </div>
+      <div class="rds-cell">
+        <div class="rname">incident_analysis_versions</div>
+        <div class="rdesc">LLM 분석 이력 (버전관리)<br>PENDING→RUNNING→COMPLETED</div>
+        <div class="rwriter">Writer: detector / agent / api(reanalyze)</div>
+      </div>
+      <div class="rds-cell">
+        <div class="rname">incident_status_history</div>
+        <div class="rdesc">상태 변경 이력<br>from/to status · changed_by</div>
+        <div class="rwriter">Writer: api (ack/resolve)</div>
+      </div>
+      <div class="rds-cell" style="border-color:#fde68a;">
+        <div class="rname" style="color:#d97706;">detector_inbox_events</div>
+        <div class="rdesc">중복 이벤트 방지<br>dedupe_key UNIQUE</div>
+        <div class="rwriter">Writer: detector (DuplicatePaymentRule)</div>
+      </div>
+      <div class="rds-cell" style="border-color:#fca5a5;">
+        <div class="rname" style="color:#dc2626;">detector_pending_correlations</div>
+        <div class="rdesc">교차 토픽 상관관계 추적<br>deadline_at · resolved</div>
+        <div class="rwriter">Writer: detector (GhostOrderRule)</div>
+      </div>
+      <div class="rds-cell" style="border-color:#e9d5ff;">
+        <div class="rname" style="color:#7c3aed;">detector_zombie_candidates</div>
+        <div class="rdesc">좀비 홀드 폴링 대상<br>check_after_at · checked</div>
+        <div class="rwriter">Writer: detector (ZombieHoldRule)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- arrows from RDS -->
+  <div style="display:flex;gap:10px;">
+    <div style="flex:3;text-align:center;">
+      <div style="color:#bbb;font-size:14px;">↓</div>
+      <div style="font-size:9px;color:#aaa;">poll incident_analysis_versions WHERE status=PENDING</div>
+    </div>
+    <div style="flex:1;text-align:center;">
+      <div style="color:#bbb;font-size:14px;">↓</div>
+      <div style="font-size:9px;color:#aaa;">read incidents / analyses</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       ROW 4 : INCIDENT AGENT + INCIDENT API
+  ══════════════════════════════════════════════════════ -->
+  <div class="row-flex" style="align-items:stretch;gap:10px;">
+
+    <!-- INCIDENT AGENT (3/4 width) -->
+    <div class="dbox" style="flex:3;">
+      <span class="dbox-title">INCIDENT AGENT &nbsp;·&nbsp; port 18087</span>
+      <div style="display:flex;flex-direction:column;gap:8px;padding-top:6px;">
+
+        <!-- step pipeline -->
+        <div class="cbox" style="padding:0;overflow:hidden;">
+          <div style="background:#faf5ff;padding:6px 12px;border-bottom:1px solid #f0f0f0;font-size:10px;font-weight:700;color:#7c3aed;">
+            분석 파이프라인
+          </div>
+          <div class="agent-steps">
+            <div class="astep" style="background:#fdf4ff;">
+              <div style="display:flex;align-items:center;gap:4px;">
+                <div class="astep-num">1</div>
+                <div class="astep-label">Scheduler</div>
+              </div>
+              <div class="astep-name">@Scheduled Poll</div>
+              <div class="astep-sub">fixedDelay = 10,000ms<br>status = PENDING 조회<br>동일 incidentId RUNNING이면 SKIP</div>
+              <div><span class="spill sp-pending">PENDING</span></div>
+            </div>
+            <div class="astep">
+              <div style="display:flex;align-items:center;gap:4px;">
+                <div class="astep-num">2</div>
+                <div class="astep-label">Set Running</div>
+              </div>
+              <div class="astep-name">상태 RUNNING 전환</div>
+              <div class="astep-sub">별도 트랜잭션 커밋<br>LLM 호출은 트랜잭션 밖<br>started_at = now()</div>
+              <div><span class="spill sp-running">RUNNING</span></div>
+            </div>
+            <div class="astep">
+              <div style="display:flex;align-items:center;gap:4px;">
+                <div class="astep-num">3</div>
+                <div class="astep-label">Context</div>
+              </div>
+              <div class="astep-name">Context Builder</div>
+              <div class="astep-sub">incidents 상세 로드<br>이벤트 스냅샷 구성<br>input_snapshot_jsonb 생성</div>
+            </div>
+            <div class="astep">
+              <div style="display:flex;align-items:center;gap:4px;">
+                <div class="astep-num">4</div>
+                <div class="astep-label">LLM Call</div>
+              </div>
+              <div class="astep-name">OpenAiLlmClient</div>
+              <div class="astep-sub">ChatCompletionCreateParams<br>maxCompletionTokens<br>System + User 프롬프트</div>
+              <div class="astep-code">GPT-4o</div>
+            </div>
+            <div class="astep">
+              <div style="display:flex;align-items:center;gap:4px;">
+                <div class="astep-num">5</div>
+                <div class="astep-label">Validate</div>
+              </div>
+              <div class="astep-name">AnalysisOutput Validator</div>
+              <div class="astep-sub">필수 필드 존재 여부<br>열거형 값 검증<br>confidence ∈ [0, 1]<br>summary ≤ 500자</div>
+            </div>
+            <div class="astep">
+              <div style="display:flex;align-items:center;gap:4px;">
+                <div class="astep-num">6</div>
+                <div class="astep-label">Save</div>
+              </div>
+              <div class="astep-name">결과 저장</div>
+              <div class="astep-sub">output_jsonb · summary_text<br>latency_ms · token count<br>실패 시 재시도 최대 3회<br>소진 → FAILED 기록</div>
+              <div>
+                <span class="spill sp-done">COMPLETED</span>
+                <span class="spill sp-failed">FAILED</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- write back arrows -->
+        <div style="display:flex;justify-content:space-around;padding:0 10px;">
+          <div style="text-align:center;">
+            <div style="color:#bbb;font-size:12px;">↑</div>
+            <div style="font-size:9px;color:#aaa;">UPDATE status=RUNNING → COMPLETED/FAILED<br>output_jsonb, summary_text, latency_ms</div>
+          </div>
+          <div style="text-align:center;">
+            <div style="color:#bbb;font-size:12px;">↑</div>
+            <div style="font-size:9px;color:#aaa;">UPDATE last_analyzed_at<br>latest_analysis_version++</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- OpenAI -->
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:80px;">
+      <div style="font-size:9px;color:#aaa;text-align:center;">ChatCompletion<br>요청 →</div>
+      <div style="font-size:20px;color:#bbb;">⇄</div>
+      <div style="font-size:9px;color:#aaa;text-align:center;">← JSON<br>응답</div>
+    </div>
+    <div class="dbox" style="flex:0.7;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border-color:#fde68a;background:#fefce8;">
+      <span class="dbox-title" style="background:#fefce8;color:#ca8a04;">OPENAI API</span>
+      <div style="font-size:24px;padding-top:8px;">✨</div>
+      <div style="font-size:12px;font-weight:700;color:#d97706;">GPT-4o</div>
+      <div style="font-size:9px;color:#888;text-align:center;line-height:1.6;">
+        System: 결제 시스템 운영 전문가<br>
+        User: 인시던트 컨텍스트 JSON<br><br>
+        <b>Output:</b><br>
+        rootCause · resolution<br>
+        severity · confidence<br>
+        summary
+      </div>
+    </div>
+
+    <!-- spacer -->
+    <div style="min-width:8px;"></div>
+
+    <!-- INCIDENT API -->
+    <div class="dbox" style="flex:1.1;">
+      <span class="dbox-title">INCIDENT API &nbsp;·&nbsp; port 18088</span>
+      <div style="display:flex;flex-direction:column;gap:6px;padding-top:6px;">
+        <div class="cbox ac-green" style="padding:8px 10px;">
+          <div class="cbox-name">🖥️ IncidentController</div>
+          <div class="ep-list">
+            <div class="ep-row"><span class="ep-method ep-get">GET</span><span class="ep-path">/ops/incidents</span><span class="ep-desc">목록</span></div>
+            <div class="ep-row"><span class="ep-method ep-get">GET</span><span class="ep-path">/ops/incidents/{id}</span><span class="ep-desc">상세</span></div>
+            <div class="ep-row"><span class="ep-method ep-get">GET</span><span class="ep-path">/{id}/analyses</span><span class="ep-desc">분석 이력</span></div>
+            <div class="ep-row"><span class="ep-method ep-post">POST</span><span class="ep-path">/{id}/reanalyze</span><span class="ep-desc">재분석 → PENDING 생성</span></div>
+            <div class="ep-row"><span class="ep-method ep-post">POST</span><span class="ep-path">/{id}/acknowledge</span><span class="ep-desc">인지 처리</span></div>
+            <div class="ep-row"><span class="ep-method ep-post">POST</span><span class="ep-path">/{id}/resolve</span><span class="ep-desc">해결 완료</span></div>
+          </div>
+        </div>
+        <div style="text-align:center;font-size:12px;color:#bbb;">⇅</div>
+        <div class="cbox" style="text-align:center;border-color:#bbf7d0;">
+          <div style="font-size:18px;">👤</div>
+          <div class="cbox-name">운영자 (Operator)</div>
+          <div class="cbox-sub">
+            HTTPS /ops/incidents/**<br>
+            인시던트 조회 · 분석 확인<br>
+            수동 재분석 · Ack · Resolve
+          </div>
+        </div>
+        <div style="padding:4px 6px;background:#f0fdf4;border-radius:6px;border:1px solid #bbf7d0;">
+          <div style="font-size:9px;color:#16a34a;font-weight:700;">reanalyze 흐름</div>
+          <div style="font-size:9px;color:#888;">POST /{id}/reanalyze<br>→ analysis_versions에 PENDING 생성<br>→ triggerType=MANUAL<br>→ Agent가 다음 폴링에 감지</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /row4 -->
+
+  <!-- write-back arrows to RDS -->
+  <div style="display:flex;gap:10px;">
+    <div style="flex:3;display:flex;justify-content:space-around;padding:0 20px;">
+      <div style="text-align:center;">
+        <div style="color:#bbb;font-size:12px;">↑</div>
+        <div style="font-size:9px;color:#aaa;">incidents.last_analyzed_at 업데이트</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="color:#bbb;font-size:12px;">↑</div>
+        <div style="font-size:9px;color:#aaa;">analysis_versions COMPLETED/FAILED 저장</div>
+      </div>
+    </div>
+    <div style="min-width:80px;"></div>
+    <div style="min-width:8px;"></div>
+    <div style="flex:1.1;display:flex;justify-content:space-around;padding:0 10px;">
+      <div style="text-align:center;">
+        <div style="color:#bbb;font-size:12px;">↑</div>
+        <div style="font-size:9px;color:#aaa;">incidents status 변경<br>status_history 기록</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /layout -->
+
+
+<!-- ══════════════════════════════════════════════════════
+     MERMAID CODE
+══════════════════════════════════════════════════════ -->
+<div class="mermaid-section" style="margin-top:36px;">
+  <h2>📋 Mermaid 다이어그램 코드</h2>
+  <div class="mermaid-code"><span class="mc-comment">%%{init: {'theme':'base','themeVariables':{'primaryColor':'#ffffff','primaryBorderColor':'#888','lineColor':'#aaa'}}}%%</span>
+<span class="mc-kw">flowchart</span> TB
+
+    <span class="mc-comment">%% ── EVENT SOURCES ──</span>
+    <span class="mc-kw">subgraph</span> PS [<span class="mc-str">"💳 Payment Service"</span>]
+        PC[<span class="mc-str">"👤 payment confirm"</span>]
+        PDB[(<span class="mc-str">"🗄️ Payment DB\n payment_event · payments"</span>)]
+        PS_SCHED[<span class="mc-str">"🔄 Scheduler\nPolling payment_event"</span>]
+        PC --> PDB --> PS_SCHED
+    <span class="mc-kw">end</span>
+
+    <span class="mc-kw">subgraph</span> TS [<span class="mc-str">"🎫 Ticketing Service"</span>]
+        TS_CON[<span class="mc-str">"⚙️ Event Consumer\nKafka Listener"</span>]
+        TDB[(<span class="mc-str">"🗄️ Ticketing DB\n ticketing_outbox · inbox_events"</span>)]
+        TS_SCHED[<span class="mc-str">"🔄 Scheduler\nPolling ticketing_outbox"</span>]
+        TS_CON --> TDB --> TS_SCHED
+    <span class="mc-kw">end</span>
+
+    <span class="mc-comment">%% ── KAFKA ──</span>
+    KPAY[[<span class="mc-str">"🔗 Kafka\npayment.events.v1\n(3 partitions)"</span>]]
+    KTICK[[<span class="mc-str">"🔗 Kafka\nticketing.events.v1\n(3 partitions)"</span>]]
+
+    PS_SCHED -->|<span class="mc-str">"Produce (Outbox)"</span>| KPAY
+    KPAY -->|<span class="mc-str">"Consume"</span>| TS_CON
+    TS_SCHED -->|<span class="mc-str">"Produce (Outbox)"</span>| KTICK
+
+    <span class="mc-comment">%% ── INCIDENT DETECTOR ──</span>
+    <span class="mc-kw">subgraph</span> ID [<span class="mc-str">"🕵️ Incident Detector (port 18086)"</span>]
+        KL1[<span class="mc-str">"📥 KafkaListener-1\npayment.events.v1"</span>]
+        KL2[<span class="mc-str">"📥 KafkaListener-2\nticketing.events.v1"</span>]
+
+        <span class="mc-kw">subgraph</span> RULES [<span class="mc-str">"Rule Engines"</span>]
+            R1[<span class="mc-str">"🔁 DuplicatePaymentRule\ndedupe_key 중복 체크"</span>]
+            R2[<span class="mc-str">"💸 PaymentMismatchRule\npaidAmount vs expectedAmount"</span>]
+            R3[<span class="mc-str">"👻 GhostOrderRule\n교차 토픽 상관관계\ndeadline +5min"</span>]
+            R4[<span class="mc-str">"🧟 ZombieHoldRule\ncheck_after_at +2min\nRedis 잔류 홀드 확인"</span>]
+        <span class="mc-kw">end</span>
+
+        GS[<span class="mc-str">"⏱ GhostOrder Scheduler\ndeadline 초과 미해소 → 인시던트"</span>]
+        ZS[<span class="mc-str">"⏱ ZombieHold Scheduler\ncheck_after_at 경과 → Redis 체크"</span>]
+        REDIS[(<span class="mc-str">"🔴 Redis\nseat:hold:{bookingId}"</span>)]
+
+        KL1 --> R1 & R2 & R3
+        KL2 --> R3 & R4
+        R3 --> GS
+        R4 --> ZS
+        ZS -->|<span class="mc-str">"key 존재 여부"</span>| REDIS
+    <span class="mc-kw">end</span>
+
+    KPAY -->|<span class="mc-str">"Consume"</span>| KL1
+    KTICK -->|<span class="mc-str">"Consume"</span>| KL2
+
+    <span class="mc-comment">%% ── SHARED RDS ──</span>
+    <span class="mc-kw">subgraph</span> RDS [<span class="mc-str">"🗄️ Shared RDS — incident schema"</span>]
+        INC[(<span class="mc-str">"incidents"</span>)]
+        IAV[(<span class="mc-str">"incident_analysis_versions"</span>)]
+        ISH[(<span class="mc-str">"incident_status_history"</span>)]
+        DIE[(<span class="mc-str">"detector_inbox_events"</span>)]
+        DPC[(<span class="mc-str">"detector_pending_correlations"</span>)]
+        DZC[(<span class="mc-str">"detector_zombie_candidates"</span>)]
+    <span class="mc-kw">end</span>
+
+    R1 -->|<span class="mc-str">"dedupe upsert"</span>| DIE
+    R3 -->|<span class="mc-str">"deadline 저장"</span>| DPC
+    R4 -->|<span class="mc-str">"check_after_at 저장"</span>| DZC
+    R1 & R2 & GS & ZS -->|<span class="mc-str">"upsert incident"</span>| INC
+    R1 & R2 & GS & ZS -->|<span class="mc-str">"create PENDING"</span>| IAV
+
+    <span class="mc-comment">%% ── INCIDENT AGENT ──</span>
+    <span class="mc-kw">subgraph</span> IA [<span class="mc-str">"🤖 Incident Agent (port 18087)"</span>]
+        IA_POLL[<span class="mc-str">"🔄 @Scheduled 10s\nPENDING 폴링\nRUNNING이면 SKIP"</span>]
+        IA_RUN[<span class="mc-str">"⚙️ 상태 RUNNING 전환\n별도 트랜잭션 커밋"</span>]
+        IA_CTX[<span class="mc-str">"📋 Context Builder\ninput_snapshot_jsonb 구성"</span>]
+        IA_LLM[<span class="mc-str">"🌐 OpenAiLlmClient\nChatCompletionCreateParams"</span>]
+        IA_VAL[<span class="mc-str">"🔎 AnalysisOutputValidator\n필수필드 / 열거형\nconfidence 0~1 / summary ≤500자"</span>]
+        IA_SAVE[<span class="mc-str">"💾 결과 저장\nCOMPLETED or FAILED\n최대 3회 재시도"</span>]
+
+        IA_POLL --> IA_RUN --> IA_CTX --> IA_LLM --> IA_VAL --> IA_SAVE
+    <span class="mc-kw">end</span>
+
+    OPENAI[<span class="mc-str">"✨ OpenAI API\nGPT-4o"</span>]
+
+    IAV -->|<span class="mc-str">"poll PENDING"</span>| IA_POLL
+    IA_RUN -->|<span class="mc-str">"UPDATE RUNNING"</span>| IAV
+    IA_LLM -->|<span class="mc-str">"ChatCompletion 요청"</span>| OPENAI
+    OPENAI -->|<span class="mc-str">"JSON 응답"</span>| IA_VAL
+    IA_SAVE -->|<span class="mc-str">"UPDATE COMPLETED/FAILED\noutput_jsonb, latency_ms"</span>| IAV
+    IA_SAVE -->|<span class="mc-str">"UPDATE last_analyzed_at"</span>| INC
+
+    <span class="mc-comment">%% ── INCIDENT API ──</span>
+    <span class="mc-kw">subgraph</span> IAPI [<span class="mc-str">"🖥️ Incident API (port 18088)"</span>]
+        REST[<span class="mc-str">"REST Controllers\n/ops/incidents/**"</span>]
+    <span class="mc-kw">end</span>
+
+    OP[<span class="mc-str">"👤 운영자 Operator"</span>]
+
+    INC & IAV -->|<span class="mc-str">"read"</span>| REST
+    REST -->|<span class="mc-str">"new PENDING (triggerType=MANUAL)"</span>| IAV
+    REST -->|<span class="mc-str">"ACKNOWLEDGED / RESOLVED"</span>| INC
+    REST -->|<span class="mc-str">"이력 기록"</span>| ISH
+    OP <-->|<span class="mc-str">"HTTPS"</span>| REST
+
+    <span class="mc-comment">%% ── STYLES ──</span>
+    <span class="mc-kw">classDef</span> kafka fill:#fff4e6,stroke:#f97316,stroke-width:2px
+    <span class="mc-kw">classDef</span> rds fill:#e0f2fe,stroke:#0284c7,stroke-width:1.5px
+    <span class="mc-kw">classDef</span> rule fill:#f5f3ff,stroke:#7c3aed,stroke-width:1.5px
+    <span class="mc-kw">classDef</span> openai fill:#fefce8,stroke:#ca8a04,stroke-width:2px
+    <span class="mc-kw">classDef</span> op fill:#f0fdf4,stroke:#16a34a,stroke-width:2px
+
+    <span class="mc-kw">class</span> KPAY,KTICK kafka
+    <span class="mc-kw">class</span> INC,IAV,ISH,DIE,DPC,DZC rds
+    <span class="mc-kw">class</span> R1,R2,R3,R4 rule
+    <span class="mc-kw">class</span> OPENAI openai
+    <span class="mc-kw">class</span> OP op</div>
+</div>
+
+</body>
+</html>

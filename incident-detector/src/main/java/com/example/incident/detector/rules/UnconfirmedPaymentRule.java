@@ -6,6 +6,7 @@ import com.example.incident.detector.incident.IncidentWriteService;
 import com.example.incident.detector.incident.dto.IncidentCreateCommand;
 import com.example.incident.detector.kafka.PaymentEventMessage;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -68,6 +69,7 @@ public class UnconfirmedPaymentRule {
      * PendingCorrelationCheckScheduler에서 호출: deadline 초과된 미해결 건을 incident로 전환
      */
     public void raiseIncidentFromExpired(PendingCorrelation pending) {
+        UUID bookingId = extractUuidFromExtraJson(pending.getExtraJsonb(), "bookingId");
         IncidentCreateCommand cmd = new IncidentCreateCommand(
                 "UNCONFIRMED_PAYMENT",
                 pending.getKeyValue(),
@@ -75,7 +77,7 @@ public class UnconfirmedPaymentRule {
                 "UNCONFIRMED_PAYMENT_NO_CONFIRM",
                 buildCurrentStateJson(pending),
                 UUID.fromString(pending.getKeyValue()),
-                null,
+                bookingId,
                 null, null, null
         );
         incidentWriteService.createOrUpdate(cmd);
@@ -145,5 +147,19 @@ public class UnconfirmedPaymentRule {
 
     private String orEmpty(String v) {
         return v != null ? v : "";
+    }
+
+    private UUID extractUuidFromExtraJson(String extraJson, String key) {
+        if (extraJson == null || extraJson.isBlank()) {
+            return null;
+        }
+        try {
+            Map<String, String> parsed = objectMapper.readValue(extraJson, new TypeReference<>() {});
+            String value = parsed.get(key);
+            return value != null && !value.isBlank() ? UUID.fromString(value) : null;
+        } catch (Exception e) {
+            log.debug("[unconfirmed-payment] Failed to parse extraJson for key={}", key, e);
+            return null;
+        }
     }
 }

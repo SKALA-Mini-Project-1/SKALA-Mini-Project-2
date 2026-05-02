@@ -39,6 +39,8 @@ const isActive = (path: string) => {
         <button class="hover:underline" @click="emit('navigate', '/support')">고객센터</button>
         <span class="text-[#c8d5e2]">|</span>
         <button class="hover:underline" @click="emit('navigate', '/mypage')">마이페이지</button>
+        <span class="text-[#c8d5e2]">|</span>
+        <button class="hover:underline font-semibold text-[#ff7a00]" @click="emit('navigate', '/ops')">운영 대시보드</button>
       </div>
     </div>
 

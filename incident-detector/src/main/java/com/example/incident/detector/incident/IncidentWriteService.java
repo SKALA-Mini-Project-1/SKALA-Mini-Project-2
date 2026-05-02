@@ -146,5 +146,7 @@ public class IncidentWriteService {
 
         incident.setLatestAnalysisVersion(nextVersion);
         incident.setStatus("OPEN");
+        incident.setUpdatedAt(now);
+        incidentRepository.save(incident);
     }
 }
