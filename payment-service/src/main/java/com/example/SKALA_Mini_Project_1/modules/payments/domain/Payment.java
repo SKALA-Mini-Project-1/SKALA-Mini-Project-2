@@ -92,6 +92,12 @@ public class Payment {
         TRANSITION_MAP.put(PaymentStatus.PAYING,
                 Set.of(PaymentStatus.PAID, PaymentStatus.FAILED, PaymentStatus.CANCELED, PaymentStatus.EXPIRED));
 
+        TRANSITION_MAP.put(PaymentStatus.FAILED,
+                Set.of(PaymentStatus.PENDING));
+
+        TRANSITION_MAP.put(PaymentStatus.CANCELED,
+                Set.of(PaymentStatus.PENDING));
+
         TRANSITION_MAP.put(PaymentStatus.PAID,
                 Set.of(PaymentStatus.CONFIRMED));
 

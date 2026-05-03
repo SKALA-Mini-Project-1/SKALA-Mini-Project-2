@@ -1,0 +1,3 @@
+rootProject.name = 'skala-mini-project-2'
+
+include 'incident-agent'

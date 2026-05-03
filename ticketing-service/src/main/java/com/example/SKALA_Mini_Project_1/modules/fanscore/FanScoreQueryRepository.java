@@ -1,5 +1,6 @@
 package com.example.SKALA_Mini_Project_1.modules.fanscore;
 
+import java.time.OffsetDateTime;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
@@ -29,6 +30,65 @@ public class FanScoreQueryRepository {
 
         List<Long> rows = jdbcTemplate.query(sql, this::mapNullableLong, bookingId);
         return rows.stream().findFirst();
+    }
+
+    public Optional<ConfirmedBookingFanScoreTargetRow> findEligibleConfirmedBookingTarget(
+            UUID bookingId,
+            OffsetDateTime referenceTime
+    ) {
+        String sql = """
+                SELECT b.id AS booking_id,
+                       b.user_id AS user_id,
+                       s.concert_id AS concert_id
+                FROM ticketing.bookings b
+                JOIN concert.schedules s ON s.id = b.schedule_id
+                JOIN payment.payments p ON p.booking_id = b.id
+                WHERE b.id = ?
+                  AND b.status = 'CONFIRMED'
+                  AND b.confirmed_at IS NOT NULL
+                  AND p.status = 'CONFIRMED'
+                  AND s.end_time <= ?
+                  AND b.fan_score_applied_at IS NULL
+                """;
+
+        List<ConfirmedBookingFanScoreTargetRow> rows = jdbcTemplate.query(
+                sql,
+                (rs, rowNum) -> new ConfirmedBookingFanScoreTargetRow(
+                        rs.getObject("booking_id", UUID.class),
+                        rs.getLong("user_id"),
+                        rs.getLong("concert_id")
+                ),
+                bookingId,
+                referenceTime
+        );
+        return rows.stream().findFirst();
+    }
+
+    public List<ConfirmedBookingFanScoreTargetRow> findEligibleConfirmedBookingTargets(OffsetDateTime referenceTime) {
+        String sql = """
+                SELECT b.id AS booking_id,
+                       b.user_id AS user_id,
+                       s.concert_id AS concert_id
+                FROM ticketing.bookings b
+                JOIN concert.schedules s ON s.id = b.schedule_id
+                JOIN payment.payments p ON p.booking_id = b.id
+                WHERE b.status = 'CONFIRMED'
+                  AND b.confirmed_at IS NOT NULL
+                  AND p.status = 'CONFIRMED'
+                  AND s.end_time <= ?
+                  AND b.fan_score_applied_at IS NULL
+                ORDER BY s.end_time ASC, b.confirmed_at ASC
+                """;
+
+        return jdbcTemplate.query(
+                sql,
+                (rs, rowNum) -> new ConfirmedBookingFanScoreTargetRow(
+                        rs.getObject("booking_id", UUID.class),
+                        rs.getLong("user_id"),
+                        rs.getLong("concert_id")
+                ),
+                referenceTime
+        );
     }
 
     public List<ConfirmedArtistBookingCountRow> findConfirmedArtistBookingCounts() {
@@ -81,6 +141,9 @@ public class FanScoreQueryRepository {
 
     private Long mapNullableLong(ResultSet rs, int rowNum) throws SQLException {
         return rs.getObject(1, Long.class);
+    }
+
+    public record ConfirmedBookingFanScoreTargetRow(UUID bookingId, Long userId, Long concertId) {
     }
 
     public record ConfirmedArtistBookingCountRow(Long userId, Long artistId, Long confirmedBookingCount) {

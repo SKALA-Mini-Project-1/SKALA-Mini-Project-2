@@ -90,13 +90,43 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
         throw new IllegalArgumentException("booking user mismatch");
     }
 
-    return paymentRepository.findByBookingId(bookingId)
-            .map(existing -> new PaymentCreateResponse(
-                    existing.getId(),
-                    existing.getStatus(),
-                    existing.getCreatedAt(),
-                    existing.getExpiredAt()
-            ))
+    return paymentRepository.findByBookingIdForUpdate(bookingId)
+            .map(existing -> {
+                PaymentStatus status = existing.getStatus();
+                if (status == PaymentStatus.PENDING) {
+                    return new PaymentCreateResponse(
+                            existing.getId(),
+                            existing.getStatus(),
+                            existing.getCreatedAt(),
+                            existing.getExpiredAt()
+                    );
+                }
+
+                if (status == PaymentStatus.CANCELED || status == PaymentStatus.FAILED) {
+                    resetToPending(existing);
+                    paymentEventRecorder.record(
+                            existing,
+                            "PAYMENT_REOPENED",
+                            status.name(),
+                            existing.getStatus().name(),
+                            "USER_RETRY",
+                            existing.getPgOrderId()
+                    );
+                    Payment saved = paymentRepository.save(existing);
+                    return new PaymentCreateResponse(
+                            saved.getId(),
+                            saved.getStatus(),
+                            saved.getCreatedAt(),
+                            saved.getExpiredAt()
+                    );
+                }
+
+                if (status == PaymentStatus.PAYING) {
+                    throw new IllegalStateException("Payment is already in progress. Cancel the current payment before retrying.");
+                }
+
+                throw new IllegalStateException("Payment cannot be recreated from status: " + status);
+            })
             .orElseGet(() -> {
                 OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
@@ -801,6 +831,24 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
             return List.of();
         }
         return response.bookingIds();
+    }
+
+    private void resetToPending(Payment payment) {
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        payment.changeStatus(PaymentStatus.PENDING);
+        payment.setExpiredAt(now.plusMinutes(createExpireMinutes));
+        payment.setHardDeadlineAt(null);
+        payment.setSubmittedAt(null);
+        payment.setCompletedAt(null);
+        payment.setPgOrderId(null);
+        payment.setPgPaymentKey(null);
+        payment.setPgStatus(null);
+        payment.setIdempotencyKey(null);
+        payment.setUpdatedAt(now);
+        payment.setPgProvider("TOSS");
+        if (payment.getOrderName() == null) {
+            payment.setOrderName("Ticket Payment");
+        }
     }
 
     private Map<String, Object> buildReasonMetadata(String reasonCode, String source, String clientRoute, boolean bestEffort) {

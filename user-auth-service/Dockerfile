@@ -1,13 +1,10 @@
 FROM eclipse-temurin:21-jdk AS build
 WORKDIR /workspace
 
-COPY gradlew gradlew.bat settings.gradle build.gradle ./
+COPY gradlew gradlew.bat build.gradle ./
+COPY ./user-auth-service/user-auth-settings.gradle settings.gradle
 COPY gradle gradle
 COPY shared-kernel shared-kernel
-COPY concert-service concert-service
-COPY queue-service queue-service
-COPY ticketing-service ticketing-service
-COPY payment-service payment-service
 COPY user-auth-service user-auth-service
 
 RUN chmod +x gradlew && ./gradlew :user-auth-service:bootJar --no-daemon

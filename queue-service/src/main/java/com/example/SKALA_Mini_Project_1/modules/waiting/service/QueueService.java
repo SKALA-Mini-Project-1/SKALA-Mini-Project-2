@@ -3,8 +3,10 @@ package com.example.SKALA_Mini_Project_1.modules.waiting.service;
 import com.example.SKALA_Mini_Project_1.global.redis.RedisKeyGenerator;
 import com.example.SKALA_Mini_Project_1.integration.concert.ConcertServiceClient;
 import com.example.SKALA_Mini_Project_1.integration.userauth.UserAuthClient;
+import com.example.SKALA_Mini_Project_1.modules.waiting.config.QueueRuntimeProperties;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.QueueStatusResponse;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.TicketingStartResponse;
+import com.example.SKALA_Mini_Project_1.modules.waiting.observability.QueueMetrics;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.RedisConnectionFailureException;
@@ -22,7 +24,6 @@ import java.util.function.Supplier;
 @RequiredArgsConstructor
 public class QueueService {
 
-    private static final long MAX_SEAT_CAPACITY = 500;
     private static final Duration QUEUE_HEARTBEAT_TTL = Duration.ofMinutes(10);
     private static final Duration ENTRY_TOKEN_TTL = Duration.ofSeconds(180);
     private static final Duration SCHEDULE_VALIDATE_CACHE_TTL = Duration.ofMinutes(10);
@@ -69,56 +70,91 @@ public class QueueService {
     private final ConcertServiceClient concertServiceClient;
     private final QueuePriorityService queuePriorityService;
     private final QueueRedisRetryPolicy queueRedisRetryPolicy;
+    private final QueueRuntimeProperties queueRuntimeProperties;
+    private final QueueMetrics queueMetrics;
 
     public TicketingStartResponse startTicketing(Long concertId, Long scheduleId, Long userId) {
-        userAuthClient.ensureUserExists(userId);
+        return queueMetrics.observe(
+                "fairline.queue.ticketing",
+                "queueService#startTicketing",
+                "start_ticketing",
+                () -> {
+                    userAuthClient.ensureUserExists(userId);
 
-        validateScheduleBelongsToConcert(concertId, scheduleId);
+                    validateScheduleBelongsToConcert(concertId, scheduleId);
 
-        long fanWeightMillis = queuePriorityService.getQueuePriorityBoostMillis(userId, concertId);
-        long rank = enterQueue(concertId, scheduleId, String.valueOf(userId), fanWeightMillis);
-        return TicketingStartResponse.waiting(rank + 1);
+                    long fanWeightMillis = queuePriorityService.getQueuePriorityBoostMillis(userId, concertId);
+                    long rank = enterQueue(concertId, scheduleId, String.valueOf(userId), fanWeightMillis);
+                    queueMetrics.incrementRequest("start_ticketing", "accepted");
+                    queueMetrics.recordWaitPosition(rank + 1);
+                    return TicketingStartResponse.waiting(rank + 1);
+                }
+        );
     }
 
     public QueueStatusResponse getStatus(Long concertId, Long scheduleId, Long userId) {
-        validateScheduleBelongsToConcert(concertId, scheduleId);
+        return queueMetrics.observe(
+                "fairline.queue.ticketing",
+                "queueService#getStatus",
+                "get_status",
+                () -> {
+                    validateScheduleBelongsToConcert(concertId, scheduleId);
 
-        String userKey = String.valueOf(userId);
-        String queueKey = getQueueKey(concertId, scheduleId);
+                    String userKey = String.valueOf(userId);
+                    String queueKey = getQueueKey(concertId, scheduleId);
 
-        try {
-            Long rank = runWithRedisRetry(() -> redisTemplate.opsForZSet().rank(queueKey, userKey));
-            if (rank == null) {
-                return QueueStatusResponse.waiting(null);
-            }
+                    try {
+                        Long rank = runWithRedisRetry(() -> redisTemplate.opsForZSet().rank(queueKey, userKey));
+                        if (rank == null) {
+                            queueMetrics.incrementRequest("get_status", "not_in_queue");
+                            return QueueStatusResponse.waiting(null);
+                        }
 
-            refreshQueueHeartbeat(concertId, scheduleId, userKey);
+                        refreshQueueHeartbeat(concertId, scheduleId, userKey);
 
-            String entryToken = tryAdmitAndIssueEntryToken(concertId, scheduleId, userId);
-            if (entryToken != null) {
-                cleanupQueueIndexIfEmpty(queueKey);
-                clearQueueHeartbeat(concertId, scheduleId, userKey);
-                return QueueStatusResponse.enter(entryToken);
-            }
+                        String entryToken = tryAdmitAndIssueEntryToken(concertId, scheduleId, userId);
+                        if (entryToken != null) {
+                            cleanupQueueIndexIfEmpty(queueKey);
+                            clearQueueHeartbeat(concertId, scheduleId, userKey);
+                            queueMetrics.incrementEntryTokenIssued();
+                            queueMetrics.incrementRequest("get_status", "enter");
+                            return QueueStatusResponse.enter(entryToken);
+                        }
 
-            return QueueStatusResponse.waiting(rank + 1);
-        } catch (RuntimeException e) {
-            if (isRedisFailure(e)) {
-                return QueueStatusResponse.waiting(null);
-            }
-            throw e;
-        }
+                        queueMetrics.incrementRequest("get_status", "waiting");
+                        queueMetrics.recordWaitPosition(rank + 1);
+                        return QueueStatusResponse.waiting(rank + 1);
+                    } catch (RuntimeException e) {
+                        if (isRedisFailure(e)) {
+                            queueMetrics.incrementRedisFailure("get_status");
+                            queueMetrics.incrementRequest("get_status", "redis_fallback");
+                            return QueueStatusResponse.waiting(null);
+                        }
+                        throw e;
+                    }
+                }
+        );
     }
 
     public boolean leaveQueue(Long concertId, Long scheduleId, Long userId) {
-        validateScheduleBelongsToConcert(concertId, scheduleId);
-        String queueKey = getQueueKey(concertId, scheduleId);
-        Long removed = runWithRedisRetry(() ->
-                redisTemplate.opsForZSet().remove(queueKey, String.valueOf(userId))
+        return queueMetrics.observe(
+                "fairline.queue.ticketing",
+                "queueService#leaveQueue",
+                "leave_queue",
+                () -> {
+                    validateScheduleBelongsToConcert(concertId, scheduleId);
+                    String queueKey = getQueueKey(concertId, scheduleId);
+                    Long removed = runWithRedisRetry(() ->
+                            redisTemplate.opsForZSet().remove(queueKey, String.valueOf(userId))
+                    );
+                    cleanupQueueIndexIfEmpty(queueKey);
+                    clearQueueHeartbeat(concertId, scheduleId, String.valueOf(userId));
+
+                    boolean left = removed != null && removed > 0;
+                    queueMetrics.incrementRequest("leave_queue", left ? "removed" : "not_found");
+                    return left;
+                }
         );
-        cleanupQueueIndexIfEmpty(queueKey);
-        clearQueueHeartbeat(concertId, scheduleId, String.valueOf(userId));
-        return removed != null && removed > 0;
     }
 
     public boolean hasQueueHeartbeat(Long concertId, Long scheduleId, String userId) {
@@ -161,7 +197,10 @@ public class QueueService {
         runWithRedisRetry(() -> redisTemplate.opsForSet().add(RedisKeyGenerator.seatActiveIndexKey(), activeKey));
 
         long now = System.currentTimeMillis();
-        long weight = Math.min(fandomWeightMillis, QueuePriorityService.MAX_QUEUE_PRIORITY_BOOST_MILLIS);
+        long weight = Math.min(
+                Math.max(fandomWeightMillis, 0L),
+                QueuePriorityService.MAX_QUEUE_PRIORITY_BOOST_MILLIS
+        );
         long jitter = ThreadLocalRandom.current().nextLong(0, 50);
         long score = now - weight + jitter;
 
@@ -189,7 +228,7 @@ public class QueueService {
                 script,
                 List.of(queueKey, activeKey, entryTokenKey),
                 userKey,
-                String.valueOf(MAX_SEAT_CAPACITY),
+                String.valueOf(queueRuntimeProperties.getMaxSeatCapacity()),
                 payload,
                 String.valueOf(ENTRY_TOKEN_TTL.toMillis()),
                 entryToken
@@ -210,7 +249,7 @@ public class QueueService {
                 return;
             }
         } catch (RuntimeException ignored) {
-            // Redis 장애 시 원격 검증 결과만 사용
+            // Redis 장애 시 downstream 검증만 수행
         }
 
         concertServiceClient.ensureScheduleBelongsToConcert(concertId, scheduleId);
@@ -223,11 +262,11 @@ public class QueueService {
     }
 
     private String getQueueKey(Long concertId, Long scheduleId) {
-        return "queue:concert:" + concertId + ":schedule:" + scheduleId;
+        return RedisKeyGenerator.queueKey(concertId, scheduleId);
     }
 
     private String getActiveKey(Long concertId, Long scheduleId) {
-        return "seat:active:concert:" + concertId + ":schedule:" + scheduleId;
+        return RedisKeyGenerator.seatActiveKey(concertId, scheduleId);
     }
 
     private void refreshQueueHeartbeat(Long concertId, Long scheduleId, String userId) {

@@ -43,6 +43,7 @@ public class SecurityConfig {
                                 "/actuator/health",
                                 "/actuator/health/**",
                                 "/actuator/info",
+                                "/actuator/prometheus",
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",
                                 "/swagger-resources/**",
@@ -54,7 +55,8 @@ public class SecurityConfig {
                                 "/api/users/login",
                                 "/api/users/logout",
                                 "/api/users/email/**",
-                                "/internal/users/**"
+                                "/internal/users/**",
+                                "/internal/fan-scores/**"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
