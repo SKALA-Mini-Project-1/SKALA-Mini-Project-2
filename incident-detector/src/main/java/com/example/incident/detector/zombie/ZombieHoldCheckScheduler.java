@@ -74,12 +74,22 @@ public class ZombieHoldCheckScheduler {
 
     private String buildStateJson(ZombieCandidate candidate) {
         try {
-            return objectMapper.writeValueAsString(Map.of(
-                    "bookingId", candidate.getBookingId().toString(),
-                    "endedEventType", orEmpty(candidate.getEndedEventType()),
-                    "endedAt", candidate.getEndedAt().toString(),
-                    "checkAfterAt", candidate.getCheckAfterAt().toString()
-            ));
+            java.util.List<Map<String, String>> timeline = java.util.List.of(
+                    Map.of("eventType", orEmpty(candidate.getEndedEventType()),
+                            "occurredAt", candidate.getEndedAt().toString(),
+                            "source", "ticketing"),
+                    Map.of("eventType", "ZOMBIE_HOLD_DETECTED",
+                            "occurredAt", candidate.getCheckAfterAt().toString(),
+                            "source", "detector",
+                            "note", "Redis hold key still present after grace period")
+            );
+            java.util.LinkedHashMap<String, Object> state = new java.util.LinkedHashMap<>();
+            state.put("bookingId", candidate.getBookingId().toString());
+            state.put("endedEventType", orEmpty(candidate.getEndedEventType()));
+            state.put("endedAt", candidate.getEndedAt().toString());
+            state.put("checkAfterAt", candidate.getCheckAfterAt().toString());
+            state.put("timeline", timeline);
+            return objectMapper.writeValueAsString(state);
         } catch (JsonProcessingException e) {
             return "{}";
         }

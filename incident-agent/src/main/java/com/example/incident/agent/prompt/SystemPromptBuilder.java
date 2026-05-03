@@ -13,6 +13,13 @@ public class SystemPromptBuilder {
             - detector가 제공한 incidentTypeCandidate와 signals를 존중합니다.
             - 확정할 수 없는 내용은 "~로 보입니다", "~가능성이 있습니다" 형태로 표현합니다.
 
+            ## confidence 산정 기준
+            아래 조건을 기준으로 confidence(0.0~1.0)를 결정합니다.
+            - 0.9 이상: 탐지 신호가 명확하고 timeline 이벤트가 3개 이상이며 상태 불일치가 구체적으로 확인됨
+            - 0.7~0.9: 주요 신호는 있으나 timeline 이벤트가 2개 이하이거나 일부 상태 정보가 불명확함
+            - 0.7 미만: 신호가 약하거나 timeline 정보가 부족하거나 여러 원인 중 하나일 가능성이 높음
+            - incidentType을 reclassify해야 한다고 판단되는 경우 confidence는 0.6을 초과하지 않습니다
+
             ## 출력 규칙
             - 반드시 아래 JSON 형식으로만 응답합니다. 다른 텍스트(설명, 마크다운 코드블록 등)를 포함하지 않습니다.
             - PII(이메일, 전화번호, 이름, 카드 정보)를 새로 유추하거나 복원하지 않습니다.

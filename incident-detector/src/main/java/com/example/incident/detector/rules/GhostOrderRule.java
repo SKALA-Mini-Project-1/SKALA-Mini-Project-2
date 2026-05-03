@@ -142,12 +142,22 @@ public class GhostOrderRule {
 
     private String buildCurrentStateJson(PendingCorrelation pending) {
         try {
-            return objectMapper.writeValueAsString(Map.of(
-                    "bookingId", pending.getKeyValue(),
-                    "triggeredAt", pending.getTriggeredAt().toString(),
-                    "deadlineAt", pending.getDeadlineAt().toString(),
-                    "extraJson", orEmpty(pending.getExtraJsonb())
-            ));
+            java.util.List<Map<String, String>> timeline = java.util.List.of(
+                    Map.of("eventType", "PAYMENT_CONFIRMED",
+                            "occurredAt", pending.getTriggeredAt().toString(),
+                            "source", "payment"),
+                    Map.of("eventType", "BOOKING_CONFIRMED_MISSING",
+                            "occurredAt", pending.getDeadlineAt().toString(),
+                            "source", "detector",
+                            "note", "deadline exceeded without booking.confirmed")
+            );
+            java.util.LinkedHashMap<String, Object> state = new java.util.LinkedHashMap<>();
+            state.put("bookingId", pending.getKeyValue());
+            state.put("triggeredAt", pending.getTriggeredAt().toString());
+            state.put("deadlineAt", pending.getDeadlineAt().toString());
+            state.put("extraJson", orEmpty(pending.getExtraJsonb()));
+            state.put("timeline", timeline);
+            return objectMapper.writeValueAsString(state);
         } catch (JsonProcessingException e) {
             return "{}";
         }
