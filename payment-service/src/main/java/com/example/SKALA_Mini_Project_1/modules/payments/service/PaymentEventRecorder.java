@@ -61,33 +61,66 @@ public class PaymentEventRecorder {
         ev.setToStatus(toStatus);
         ev.setIdempotencyKey(payment.getIdempotencyKey());
         ev.setPgEventId(pgEventId);
-        ev.setPayloadJson(buildPayloadJson(payment, metadata));
         ev.setOccurredAt(now);
         ev.setCreatedAt(now);
         ev.setPublishStatus("PENDING");
         ev.setRetryCount(0);
+        // payload_json stores the full message envelope so Debezium can send it directly to Kafka
+        ev.setPayloadJson(buildFullEnvelope(ev, payment, metadata));
         paymentEventRepository.save(ev);
     }
 
-    private String buildPayloadJson(Payment payment, Map<String, Object> metadata) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("bookingId", safe(payment.getBookingId()));
-        payload.put("amount", payment.getAmount() != null ? payment.getAmount() : 0);
-        payload.put("pgOrderId", safe(payment.getPgOrderId()));
-        payload.put("pgPaymentKey", safe(payment.getPgPaymentKey()));
-        if (payment.getUserId() != null)    payload.put("userId", payment.getUserId());
-        if (payment.getScheduleId() != null) payload.put("scheduleId", payment.getScheduleId());
+    /**
+     * Builds the full message envelope matching PaymentOutboxMessage / PaymentEventMessage.
+     * Stored in payload_json so Debezium Outbox Event Router sends it verbatim to consumers.
+     */
+    private String buildFullEnvelope(PaymentEvent ev, Payment payment, Map<String, Object> metadata) {
+        Map<String, Object> innerPayload = new LinkedHashMap<>();
+        innerPayload.put("bookingId", safe(payment.getBookingId()));
+        innerPayload.put("amount", payment.getAmount() != null ? payment.getAmount() : 0);
+        innerPayload.put("pgOrderId", safe(payment.getPgOrderId()));
+        innerPayload.put("pgPaymentKey", safe(payment.getPgPaymentKey()));
+        if (payment.getUserId() != null)     innerPayload.put("userId", payment.getUserId());
+        if (payment.getScheduleId() != null) innerPayload.put("scheduleId", payment.getScheduleId());
         if (metadata != null && !metadata.isEmpty()) {
             for (Map.Entry<String, Object> entry : metadata.entrySet()) {
                 if (entry.getValue() != null) {
-                    payload.put(entry.getKey(), entry.getValue());
+                    innerPayload.put(entry.getKey(), entry.getValue());
                 }
             }
         }
+
+        String innerJson;
         try {
-            return objectMapper.writeValueAsString(payload);
+            innerJson = objectMapper.writeValueAsString(innerPayload);
         } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Failed to serialize payment event payload", e);
+            throw new IllegalStateException("Failed to serialize inner payment payload", e);
+        }
+
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("eventId", ev.getEventId());
+        envelope.put("eventType", ev.getEventType());
+        envelope.put("eventVersion", ev.getEventVersion());
+        envelope.put("producer", ev.getProducer());
+        envelope.put("aggregateType", ev.getAggregateType());
+        envelope.put("aggregateId", ev.getAggregateId());
+        envelope.put("orderingKey", ev.getOrderingKey());
+        envelope.put("paymentId", ev.getPaymentId());
+        envelope.put("bookingId", ev.getBookingId());
+        envelope.put("pgOrderId", ev.getPgEventId());
+        envelope.put("fromStatus", ev.getFromStatus());
+        envelope.put("toStatus", ev.getToStatus());
+        envelope.put("correlationId", ev.getCorrelationId());
+        envelope.put("causationId", ev.getCausationId());
+        envelope.put("traceId", ev.getTraceId());
+        envelope.put("idempotencyKey", ev.getIdempotencyKey());
+        envelope.put("occurredAt", ev.getOccurredAt() != null ? ev.getOccurredAt().toString() : null);
+        envelope.put("payloadJson", innerJson);
+
+        try {
+            return objectMapper.writeValueAsString(envelope);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialize payment event envelope", e);
         }
     }
 
