@@ -7,6 +7,9 @@ import static org.mockito.Mockito.when;
 import com.example.SKALA_Mini_Project_1.integration.concert.ConcertServiceClient;
 import com.example.SKALA_Mini_Project_1.integration.userauth.UserAuthClient;
 import com.example.SKALA_Mini_Project_1.modules.waiting.exception.DownstreamServiceException;
+import com.example.SKALA_Mini_Project_1.modules.waiting.observability.QueueMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -20,7 +23,8 @@ class QueuePriorityPolicyTest {
     void setUp() {
         concertServiceClient = mock(ConcertServiceClient.class);
         userAuthClient = mock(UserAuthClient.class);
-        queuePriorityPolicy = new QueuePriorityPolicy(concertServiceClient, userAuthClient);
+        QueueMetrics queueMetrics = new QueueMetrics(new SimpleMeterRegistry(), ObservationRegistry.create());
+        queuePriorityPolicy = new QueuePriorityPolicy(concertServiceClient, userAuthClient, queueMetrics);
     }
 
     @Test

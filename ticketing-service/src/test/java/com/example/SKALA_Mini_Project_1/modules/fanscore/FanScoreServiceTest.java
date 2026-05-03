@@ -12,6 +12,8 @@ import com.example.SKALA_Mini_Project_1.integration.concert.ConcertServiceClient
 import com.example.SKALA_Mini_Project_1.integration.userauth.UserAuthClient;
 import com.example.SKALA_Mini_Project_1.modules.bookings.repository.BookingRepository;
 import com.example.SKALA_Mini_Project_1.modules.fanscore.exception.FanScoreSyncException;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -33,11 +35,13 @@ class FanScoreServiceTest {
         fanScoreQueryRepository = mock(FanScoreQueryRepository.class);
         concertServiceClient = mock(ConcertServiceClient.class);
         userAuthClient = mock(UserAuthClient.class);
+        FanScoreMetrics fanScoreMetrics = new FanScoreMetrics(new SimpleMeterRegistry(), ObservationRegistry.create());
         fanScoreService = new FanScoreService(
                 bookingRepository,
                 fanScoreQueryRepository,
                 concertServiceClient,
-                userAuthClient
+                userAuthClient,
+                fanScoreMetrics
         );
     }
 

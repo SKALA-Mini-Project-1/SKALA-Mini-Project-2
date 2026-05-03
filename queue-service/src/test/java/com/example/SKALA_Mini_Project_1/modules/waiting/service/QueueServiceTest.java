@@ -17,6 +17,9 @@ import com.example.SKALA_Mini_Project_1.integration.userauth.UserAuthClient;
 import com.example.SKALA_Mini_Project_1.modules.waiting.config.QueueRuntimeProperties;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.QueueStatusResponse;
 import com.example.SKALA_Mini_Project_1.modules.waiting.dto.TicketingStartResponse;
+import com.example.SKALA_Mini_Project_1.modules.waiting.observability.QueueMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,6 +42,7 @@ class QueueServiceTest {
     private QueuePriorityService queuePriorityService;
     private QueueRedisRetryPolicy queueRedisRetryPolicy;
     private QueueRuntimeProperties queueRuntimeProperties;
+    private QueueMetrics queueMetrics;
     private QueueService queueService;
 
     @BeforeEach
@@ -54,6 +58,7 @@ class QueueServiceTest {
 
         queueRuntimeProperties = new QueueRuntimeProperties();
         queueRuntimeProperties.setMaxSeatCapacity(123);
+        queueMetrics = new QueueMetrics(new SimpleMeterRegistry(), ObservationRegistry.create());
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(redisTemplate.opsForSet()).thenReturn(setOperations);
@@ -66,7 +71,8 @@ class QueueServiceTest {
                 concertServiceClient,
                 queuePriorityService,
                 queueRedisRetryPolicy,
-                queueRuntimeProperties
+                queueRuntimeProperties,
+                queueMetrics
         );
     }
 
