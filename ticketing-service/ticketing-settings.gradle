@@ -1,0 +1,4 @@
+rootProject.name = 'skala-mini-project-2'
+
+include 'shared-kernel'
+include 'ticketing-service'

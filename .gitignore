@@ -49,3 +49,7 @@ desktop.ini
 # Kubernetes local secrets
 /k8s/base/secret.yaml
 /backend/src/main/java/com/example/SKALA_Mini_Project_1/modules/payments/paper/
+
+
+# Test Code
+/stress_test

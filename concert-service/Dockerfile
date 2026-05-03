@@ -1,20 +1,11 @@
 FROM eclipse-temurin:21-jdk AS build
 WORKDIR /workspace
 
-COPY gradlew gradlew.bat settings.gradle build.gradle ./
+COPY gradlew gradlew.bat build.gradle ./
+COPY concert-service/concert-settings.gradle settings.gradle
 COPY gradle gradle
 COPY shared-kernel shared-kernel
-COPY user-auth-service user-auth-service
-COPY queue-service queue-service
-COPY ticketing-service ticketing-service
-COPY payment-service payment-service
-COPY incident-detector incident-detector
-COPY incident-agent incident-agent
-COPY incident-api incident-api
 COPY concert-service concert-service
-COPY incident-detector incident-detector
-COPY incident-agent incident-agent
-COPY incident-api incident-api
 
 RUN chmod +x gradlew && ./gradlew :concert-service:bootJar --no-daemon
 
