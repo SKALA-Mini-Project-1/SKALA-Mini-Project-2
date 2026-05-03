@@ -141,6 +141,8 @@ public PaymentCreateResponse createPayment(UUID bookingId, Long userId) {
 
                 Payment payment = new Payment();
                 payment.setBookingId(bookingId);
+                payment.setUserId(userId);
+                payment.setScheduleId(bookingContext.scheduleId());
                 payment.setAmount(amount);
                 payment.setStatus(PaymentStatus.PENDING);
                 payment.setCreatedAt(now);

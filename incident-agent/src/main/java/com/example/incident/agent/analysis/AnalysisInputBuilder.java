@@ -47,7 +47,12 @@ public class AnalysisInputBuilder {
 
         if (incident.getCurrentStateJsonb() != null) {
             try {
-                root.set("signals", objectMapper.readTree(incident.getCurrentStateJsonb()));
+                com.fasterxml.jackson.databind.JsonNode stateNode =
+                        objectMapper.readTree(incident.getCurrentStateJsonb());
+                root.set("signals", stateNode);
+                if (stateNode.has("timeline")) {
+                    root.set("timeline", stateNode.get("timeline"));
+                }
             } catch (JsonProcessingException e) {
                 root.put("signals", incident.getCurrentStateJsonb());
             }

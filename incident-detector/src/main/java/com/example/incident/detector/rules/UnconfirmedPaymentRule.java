@@ -76,7 +76,7 @@ public class UnconfirmedPaymentRule {
         IncidentCreateCommand cmd = new IncidentCreateCommand(
                 "UNCONFIRMED_PAYMENT",
                 pending.getKeyValue(),
-                "medium",
+                "high",
                 "UNCONFIRMED_PAYMENT_NO_CONFIRM",
                 buildCurrentStateJson(pending),
                 UUID.fromString(pending.getKeyValue()),
@@ -164,12 +164,22 @@ public class UnconfirmedPaymentRule {
 
     private String buildCurrentStateJson(PendingCorrelation pending) {
         try {
-            return objectMapper.writeValueAsString(Map.of(
-                    "paymentId", pending.getKeyValue(),
-                    "triggeredAt", pending.getTriggeredAt().toString(),
-                    "deadlineAt", pending.getDeadlineAt().toString(),
-                    "extraJson", orEmpty(pending.getExtraJsonb())
-            ));
+            java.util.List<Map<String, String>> timeline = java.util.List.of(
+                    Map.of("eventType", orEmpty(pending.getTriggerEventType()),
+                            "occurredAt", pending.getTriggeredAt().toString(),
+                            "source", "payment"),
+                    Map.of("eventType", "PAYMENT_CONFIRMED_MISSING",
+                            "occurredAt", pending.getDeadlineAt().toString(),
+                            "source", "detector",
+                            "note", "deadline exceeded without PAYMENT_CONFIRMED")
+            );
+            java.util.LinkedHashMap<String, Object> state = new java.util.LinkedHashMap<>();
+            state.put("paymentId", pending.getKeyValue());
+            state.put("triggeredAt", pending.getTriggeredAt().toString());
+            state.put("deadlineAt", pending.getDeadlineAt().toString());
+            state.put("extraJson", orEmpty(pending.getExtraJsonb()));
+            state.put("timeline", timeline);
+            return objectMapper.writeValueAsString(state);
         } catch (JsonProcessingException e) {
             return "{}";
         }

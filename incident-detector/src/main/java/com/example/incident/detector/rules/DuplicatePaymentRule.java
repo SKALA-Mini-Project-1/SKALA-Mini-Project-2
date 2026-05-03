@@ -83,13 +83,24 @@ public class DuplicatePaymentRule {
 
     private String buildStateJson(PaymentEventMessage event) {
         try {
-            return objectMapper.writeValueAsString(Map.of(
-                    "paymentId", String.valueOf(event.paymentId()),
-                    "bookingId", String.valueOf(event.bookingId()),
-                    "fromStatus", orEmpty(event.fromStatus()),
-                    "toStatus", orEmpty(event.toStatus()),
-                    "occurredAt", orEmpty(event.occurredAt())
-            ));
+            java.util.List<Map<String, String>> timeline = java.util.List.of(
+                    Map.of("eventType", "PAYMENT_CONFIRMED_FIRST",
+                            "occurredAt", orEmpty(event.occurredAt()),
+                            "source", "payment",
+                            "note", "first confirmation recorded in Redis"),
+                    Map.of("eventType", "PAYMENT_CONFIRMED_DUPLICATE",
+                            "occurredAt", orEmpty(event.occurredAt()),
+                            "source", "payment",
+                            "note", "duplicate confirmation detected for same bookingId")
+            );
+            java.util.LinkedHashMap<String, Object> state = new java.util.LinkedHashMap<>();
+            state.put("paymentId", String.valueOf(event.paymentId()));
+            state.put("bookingId", String.valueOf(event.bookingId()));
+            state.put("fromStatus", orEmpty(event.fromStatus()));
+            state.put("toStatus", orEmpty(event.toStatus()));
+            state.put("occurredAt", orEmpty(event.occurredAt()));
+            state.put("timeline", timeline);
+            return objectMapper.writeValueAsString(state);
         } catch (JsonProcessingException e) {
             return "{}";
         }

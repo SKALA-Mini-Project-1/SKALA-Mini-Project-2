@@ -50,6 +50,12 @@ public class Payment {
     @Column(name = "booking_id", columnDefinition = "uuid", nullable = false)
     private UUID bookingId;
 
+    @Column(name = "user_id")
+    private Long userId;
+
+    @Column(name = "schedule_id")
+    private Long scheduleId;
+
     // 결제 당시 PG로 보낸 상품명 저장용
     @Column(name = "order_name")
     private String orderName;

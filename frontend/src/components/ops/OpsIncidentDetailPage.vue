@@ -94,7 +94,7 @@ function fmt(iso: string | null | undefined): string {
   })
 }
 
-function parseCurrentState(json: string | null): Record<string, string> {
+function parseCurrentState(json: string | null): Record<string, unknown> {
   if (!json) return {}
   try { return JSON.parse(json) } catch { return {} }
 }
@@ -109,10 +109,51 @@ function parseNestedJson(value: string | null | undefined): Record<string, unkno
   }
 }
 
+function isIsoDate(str: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(str)
+}
+
+function toDisplayString(val: unknown): string | null {
+  if (val === null || val === undefined || val === '') return null
+  if (typeof val === 'string') return isIsoDate(val) ? fmt(val) : val
+  if (typeof val === 'number') return String(val)
+  return null
+}
+
 const stateSnapshot = computed(() => parseCurrentState(incident.value?.currentState ?? null))
+
 const nestedExtraJson = computed(() => {
   const extraJson = stateSnapshot.value.extraJson
   return typeof extraJson === 'string' ? parseNestedJson(extraJson) : {}
+})
+
+// extraJson을 펼치고, timeline·extraJson 키 자체를 제거한 평탄화 스냅샷
+const flatSnapshot = computed((): Array<{ key: string; val: string }> => {
+  const result: Array<{ key: string; val: string }> = []
+  const skipKeys = new Set(['extraJson', 'timeline'])
+
+  for (const [key, val] of Object.entries(stateSnapshot.value)) {
+    if (skipKeys.has(key)) continue
+    const display = toDisplayString(val)
+    if (display !== null) result.push({ key, val: display })
+  }
+
+  // extraJson 내부 필드를 펼쳐서 추가 (paymentId·bookingId는 관련 리소스에 이미 있으므로 중복 제거)
+  const resourceKeys = new Set(['paymentId', 'bookingId', 'userId', 'concertId', 'scheduleId'])
+  for (const [key, val] of Object.entries(nestedExtraJson.value)) {
+    if (resourceKeys.has(key)) continue
+    const display = toDisplayString(val)
+    if (display !== null) result.push({ key, val: display })
+  }
+
+  return result
+})
+
+// timeline 배열 따로 추출
+const snapshotTimeline = computed((): Array<Record<string, string>> => {
+  const timeline = stateSnapshot.value.timeline
+  if (!Array.isArray(timeline)) return []
+  return timeline as Array<Record<string, string>>
 })
 
 function asDisplayValue(value: unknown): string | number | null {
@@ -318,16 +359,37 @@ function confidencePct(v: AnalysisVersion | null): number {
           <!-- 상태 스냅샷 -->
           <div class="ops-card snapshot-card">
             <p class="section-title">📋 현재 상태 스냅샷</p>
-            <div v-if="incident.currentState" class="snapshot-grid">
-              <div
-                v-for="(val, key) in stateSnapshot"
-                :key="key"
-                class="snapshot-item"
-              >
-                <p class="snapshot-key muted">{{ key }}</p>
-                <p class="snapshot-val">{{ val }}</p>
+            <template v-if="incident.currentState">
+              <div class="snapshot-grid">
+                <div
+                  v-for="item in flatSnapshot"
+                  :key="item.key"
+                  class="snapshot-item"
+                >
+                  <p class="snapshot-key muted">{{ item.key }}</p>
+                  <p class="snapshot-val">{{ item.val }}</p>
+                </div>
               </div>
-            </div>
+              <!-- 이벤트 타임라인 (있는 경우) -->
+              <template v-if="snapshotTimeline.length">
+                <p class="block-label" style="margin-top:14px;">이벤트 흐름</p>
+                <div class="timeline-list">
+                  <div
+                    v-for="(ev, i) in snapshotTimeline"
+                    :key="i"
+                    class="timeline-event"
+                  >
+                    <span class="timeline-dot" />
+                    <div class="timeline-body">
+                      <span class="timeline-type">{{ ev.eventType }}</span>
+                      <span class="muted timeline-source">{{ ev.source }}</span>
+                      <span v-if="ev.note" class="muted timeline-note">— {{ ev.note }}</span>
+                      <span class="muted timeline-time">{{ isIsoDate(ev.occurredAt) ? fmt(ev.occurredAt) : ev.occurredAt }}</span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </template>
             <p v-else class="muted" style="font-size:13px;">스냅샷 없음</p>
           </div>
 
@@ -537,11 +599,21 @@ function confidencePct(v: AnalysisVersion | null): number {
 .snapshot-grid  { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
 .snapshot-item  { background: #f7fafd; border: 1px solid #d6e3f2; border-radius: 10px; padding: 10px 12px; }
 .snapshot-key   { font-size: 11px; font-weight: 600; color: #6a819a; margin-bottom: 3px; }
-.snapshot-val   { font-size: 13px; font-weight: 700; font-family: monospace; color: #173451; }
+.snapshot-val   { font-size: 13px; font-weight: 700; color: #173451; word-break: break-all; }
 
 .resource-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; font-size: 13px; }
 .resource-row  { display: flex; justify-content: space-between; align-items: center; }
 .resource-row code { font-family: monospace; font-size: 12px; font-weight: 600; color: #173451; }
+
+/* 스냅샷 타임라인 */
+.timeline-list  { display: flex; flex-direction: column; gap: 6px; }
+.timeline-event { display: flex; align-items: flex-start; gap: 10px; }
+.timeline-dot   { width: 8px; height: 8px; border-radius: 50%; background: #ff7a00; flex-shrink: 0; margin-top: 5px; }
+.timeline-body  { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
+.timeline-type  { font-weight: 700; color: #173451; }
+.timeline-source { background: #f7fafd; border: 1px solid #d6e3f2; border-radius: 6px; padding: 1px 7px; }
+.timeline-note  { font-style: italic; }
+.timeline-time  { margin-left: auto; white-space: nowrap; }
 
 /* 신호 */
 .signal-card  { padding: 20px 22px; }

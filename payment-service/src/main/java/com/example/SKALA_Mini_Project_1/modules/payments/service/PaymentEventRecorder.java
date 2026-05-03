@@ -80,6 +80,8 @@ public class PaymentEventRecorder {
         innerPayload.put("amount", payment.getAmount() != null ? payment.getAmount() : 0);
         innerPayload.put("pgOrderId", safe(payment.getPgOrderId()));
         innerPayload.put("pgPaymentKey", safe(payment.getPgPaymentKey()));
+        if (payment.getUserId() != null)     innerPayload.put("userId", payment.getUserId());
+        if (payment.getScheduleId() != null) innerPayload.put("scheduleId", payment.getScheduleId());
         if (metadata != null && !metadata.isEmpty()) {
             for (Map.Entry<String, Object> entry : metadata.entrySet()) {
                 if (entry.getValue() != null) {
