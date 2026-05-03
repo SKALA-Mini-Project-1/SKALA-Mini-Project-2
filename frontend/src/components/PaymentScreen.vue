@@ -254,6 +254,22 @@ const handlePayment = async () => {
       return;
     }
 
+    const currentSession = getActivePaymentSession();
+    const currentPaymentId =
+      currentSession?.bookingId === bookingId
+        ? (activePaymentId.value ?? currentSession.paymentId)
+        : null;
+    if (currentPaymentId) {
+      try {
+        await cancelPayment(currentPaymentId, token, buildExitPayload('PAYMENT_METHOD_CHANGED', 'PAYMENT_RETRY_BEFORE_SUBMIT'));
+      } catch (error) {
+        console.warn('[PaymentScreen] existing payment cancel failed before retry', error);
+      } finally {
+        clearActivePaymentSession();
+        activePaymentId.value = null;
+      }
+    }
+
     const created = await createPayment({ bookingId, userId: authUser.userId }, token);
     activePaymentId.value = created.paymentId;
     setActivePaymentSession({
