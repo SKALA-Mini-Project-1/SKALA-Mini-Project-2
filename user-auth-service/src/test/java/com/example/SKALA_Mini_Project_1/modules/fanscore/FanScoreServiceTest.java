@@ -6,6 +6,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,7 +22,8 @@ class FanScoreServiceTest {
     @BeforeEach
     void setUp() {
         userArtistFanScoreRepository = mock(UserArtistFanScoreRepository.class);
-        fanScoreService = new FanScoreService(userArtistFanScoreRepository);
+        FanScoreMetrics fanScoreMetrics = new FanScoreMetrics(new SimpleMeterRegistry(), ObservationRegistry.create());
+        fanScoreService = new FanScoreService(userArtistFanScoreRepository, fanScoreMetrics);
     }
 
     @Test
