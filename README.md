@@ -1,3 +1,4 @@
+![Main_Page](./README/Fairline_Ticket_main_page.png)
 # 0. Getting Started (시작하기)
 
 이 프로젝트는 Docker Compose 기준으로 전체 서비스를 한 번에 실행할 수 있습니다.
