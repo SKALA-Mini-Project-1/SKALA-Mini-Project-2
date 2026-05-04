@@ -5,6 +5,3 @@
 **/node_modules
 frontend/dist
 backend/build
-!queue-service/build/
-!queue-service/build/libs/
-!queue-service/build/libs/*.jar

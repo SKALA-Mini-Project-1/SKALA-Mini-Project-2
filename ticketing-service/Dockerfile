@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 FROM eclipse-temurin:21-jdk AS build
 WORKDIR /workspace
 
@@ -5,9 +6,15 @@ COPY gradlew gradlew.bat build.gradle ./
 COPY ticketing-service/ticketing-settings.gradle settings.gradle
 COPY gradle gradle
 COPY shared-kernel shared-kernel
-COPY ticketing-service ticketing-service
+COPY ticketing-service/build.gradle ticketing-service/build.gradle
 
-RUN chmod +x gradlew && ./gradlew :ticketing-service:bootJar --no-daemon
+RUN --mount=type=cache,target=/root/.gradle \
+    chmod +x gradlew && ./gradlew :ticketing-service:dependencies --no-daemon
+
+COPY ticketing-service/src ticketing-service/src
+
+RUN --mount=type=cache,target=/root/.gradle \
+    ./gradlew :ticketing-service:bootJar --no-daemon
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
