@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 FROM eclipse-temurin:21-jdk AS build
 WORKDIR /workspace
 
@@ -8,13 +7,11 @@ COPY gradle gradle
 COPY shared-kernel shared-kernel
 COPY payment-service/build.gradle payment-service/build.gradle
 
-RUN --mount=type=cache,target=/root/.gradle \
-    chmod +x gradlew && ./gradlew :payment-service:dependencies --no-daemon
+RUN chmod +x gradlew && ./gradlew :payment-service:dependencies --no-daemon
 
 COPY payment-service/src payment-service/src
 
-RUN --mount=type=cache,target=/root/.gradle \
-    ./gradlew :payment-service:bootJar --no-daemon
+RUN ./gradlew :payment-service:bootJar --no-daemon
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
