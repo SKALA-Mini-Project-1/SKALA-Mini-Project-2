@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 FROM eclipse-temurin:21-jdk AS build
 WORKDIR /workspace
 
@@ -8,13 +7,11 @@ COPY gradle gradle
 COPY shared-kernel shared-kernel
 COPY user-auth-service/build.gradle user-auth-service/build.gradle
 
-RUN --mount=type=cache,target=/root/.gradle \
-    chmod +x gradlew && ./gradlew :user-auth-service:dependencies --no-daemon
+RUN chmod +x gradlew && ./gradlew :user-auth-service:dependencies --no-daemon
 
 COPY user-auth-service/src user-auth-service/src
 
-RUN --mount=type=cache,target=/root/.gradle \
-    ./gradlew :user-auth-service:bootJar --no-daemon
+RUN ./gradlew :user-auth-service:bootJar --no-daemon
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
