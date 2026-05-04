@@ -3,6 +3,13 @@ set -e
 
 AWS_REGION=ap-northeast-2
 
+PLATFORM_ARGS=()
+case "$(uname -m)" in
+  arm64|aarch64)
+    PLATFORM_ARGS=(--platform linux/amd64)
+    ;;
+esac
+
 # AWS 로그인 확인
 echo "AWS 계정 확인 중..."
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
@@ -43,7 +50,7 @@ for SERVICE in $SERVICES; do
   echo "=========================================="
   echo "Building: $SERVICE"
   echo "=========================================="
-  docker build --platform linux/amd64 \
+  docker build "${PLATFORM_ARGS[@]}" \
     -t $REGISTRY/team4-${SERVICE}:latest \
     -f ${SERVICE}/Dockerfile .
   docker push $REGISTRY/team4-${SERVICE}:latest
@@ -55,7 +62,7 @@ if [ "$BUILD_FRONTEND" = true ]; then
   echo "=========================================="
   echo "Building: frontend"
   echo "=========================================="
-  docker build --no-cache --platform linux/amd64 \
+  docker build "${PLATFORM_ARGS[@]}" \
     -t $REGISTRY/team4-frontend:latest \
     -f frontend/Dockerfile ./frontend
   docker push $REGISTRY/team4-frontend:latest
