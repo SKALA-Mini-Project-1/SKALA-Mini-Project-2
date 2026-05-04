@@ -63,5 +63,5 @@ docker compose up --build
 
 ## 참고
 
-- 각 주요 디렉토리에는 별도의 한국어 `README.md`가 있습니다.
+- 각 주요 디렉토리에는 별도의 `README.md`가 있습니다.
 - `build/`, `dist/`, `node_modules/`는 생성 산출물이라 구조 파악 대상에서 제외해도 됩니다.
