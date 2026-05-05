@@ -164,7 +164,7 @@ skala_mini_project/
 Git Flow를 기반으로 하여 브랜치 전략 사용
 - `main`, `dev`, 팀원 개인 기능 브랜치
 - `dev-{name}` : 팀원 각자의 개발 브랜치
-- PR merge 방식 : `개인이 생성한 PR에 대해 팀원 1명의 승인이 있어야 PR 내용이 반영되도록 규칙 도입`
+- `PR merge 방식` : 개인이 생성한 PR에 대해 팀원 1명의 승인이 있어야 PR 내용이 반영되도록 규칙 도입
 
 ## 실행 및 개발 흐름
 
@@ -199,7 +199,7 @@ Git Flow를 기반으로 하여 브랜치 전략 사용
 - `OPENAI_API_KEY`
 
 
-운영 환경 시크릿 관리 방식:
+**운영 환경 시크릿 관리 방식**:
 - 로컬 개발 환경에서는 루트 `.env` 파일로 데이터베이스 계정, JWT 시크릿, 내부 API 토큰, 메일 계정, 결제 연동 키, OpenAI API 키를 주입합니다.
 - 운영 배포 환경에서는 Kubernetes `Secret`인 `app-secret`을 사용해 주요 민감 정보를 주입합니다.
 - Kubernetes `Secret`에는 데이터베이스 계정 정보, JWT 시크릿, 서비스 간 내부 토큰, 메일 계정, `TOSS_SECRET_KEY`, `OPENAI_API_KEY` 등 서버 측 민감 값이 포함됩니다.
